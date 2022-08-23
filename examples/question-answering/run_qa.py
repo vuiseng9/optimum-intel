@@ -21,6 +21,7 @@ Fine-tuning the library models for question answering.
 import logging
 import os
 import sys
+import time
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -636,13 +637,17 @@ def main():
 
     resume_from_checkpoint = training_args.resume_from_checkpoint
     metric_name = optim_args.metric
+    sample_num = len(eval_dataset)
 
     def take_eval_steps(model, trainer, metric_name, save_metrics=False):
         trainer.model = model
+        start = time.time()
         metrics = trainer.evaluate()
+        metrics['eval_samples_per_second'] = sample_num / (time.time() - start)
         if save_metrics:
             trainer.save_metrics("eval", metrics)
         logger.info("{}: {}".format(metric_name, metrics.get(metric_name)))
+        logger.info("Throughput: {} samples/sec".format(metrics.get("eval_samples_per_second")))
         return metrics[metric_name]
 
     def eval_func(model):
