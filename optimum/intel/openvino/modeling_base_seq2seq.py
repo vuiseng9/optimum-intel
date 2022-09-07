@@ -155,56 +155,44 @@ class OVBaseModelForSeq2SeqLM(OVBaseModel):
             local_files_only(`bool`, *optional*, defaults to `False`):
                 Whether or not to only look at local files (i.e., do not try to download the model).
         """
-        from_onnx = kwargs.pop("from_onnx", False)
         config_dict = kwargs.pop("config", {})
         config = PretrainedConfig.from_dict(config_dict)
         local_files_only = kwargs.pop("local_files_only", False)
         use_cache = kwargs.pop("use_cache", True)
+
         # TODO: Remove with next openvino release
         if use_cache:
             logger.warning(
                 "The `use_cache` argument is changed to `False`, its support will be enabled in the next release."
             )
-            use_cache = False
-        default_encoder_file_name = ONNX_ENCODER_NAME if from_onnx else OV_ENCODER_NAME
-        default_decoder_file_name = ONNX_DECODER_NAME if from_onnx else OV_DECODER_NAME
-        default_decoder_with_past_file_name = ONNX_DECODER_WITH_PAST_NAME if from_onnx else OV_DECODER_WITH_PAST_NAME
+            use_cache = False 
 
-        encoder_file_name = encoder_file_name or default_encoder_file_name
-        decoder_file_name = decoder_file_name or default_decoder_file_name
-        decoder_with_past_file_name = decoder_with_past_file_name or default_decoder_with_past_file_name
+        encoder_file_name = encoder_file_name or OV_ENCODER_NAME
+        decoder_file_name = decoder_file_name or OV_DECODER_NAME
+        decoder_past_file_name = decoder_with_past_file_name or OV_DECODER_WITH_PAST_NAME
 
         # Load model from a local directory
         if os.path.isdir(model_id):
-            encoder_bin_file_name = (
-                os.path.join(model_id, encoder_file_name.replace(".xml", ".bin")) if not from_onnx else None
-            )
-            decoder_bin_file_name = (
-                os.path.join(model_id, decoder_file_name.replace(".xml", ".bin")) if not from_onnx else None
-            )
-            decoder_with_past_bin_file_name = (
-                os.path.join(model_id, decoder_with_past_file_name.replace(".xml", ".bin")) if not from_onnx else None
-            )
+            encoder_file_name = os.path.join(model_id, encoder_file_name)
+            decoder_file_name = os.path.join(model_id, decoder_file_name)
+            encoder = cls.load_model(encoder_file_name, encoder_file_name.replace(".xml", ".bin"))
+            decoder = cls.load_model(decoder_file_name, decoder_file_name.replace(".xml", ".bin"))
+            if use_cache:
+                decoder_past_file_name = os.path.join(model_id, decoder_past_file_name)
+                decoder_past = cls.load_model(decoder_past_file_name, decoder_past_file_name.replace(".xml", ".bin"))
+            else:
+                decoder_past = None
 
-            encoder = cls.load_model(os.path.join(model_id, encoder_file_name), encoder_bin_file_name)
-            decoder = cls.load_model(os.path.join(model_id, decoder_file_name), decoder_bin_file_name)
-            decoder_with_past = (
-                cls.load_model(os.path.join(model_id, decoder_with_past_file_name), decoder_with_past_bin_file_name)
-                if use_cache
-                else None
-            )
             kwargs["model_save_dir"] = Path(model_id)
 
         # Load model from hub
         else:
             model_file_names = {"encoder": encoder_file_name, "decoder": decoder_file_name}
             if use_cache:
-                model_file_names["decoder_with_past"] = decoder_with_past_file_name
-
-            # If not ONNX then OpenVINO IR : adds binary files
-            if not from_onnx:
-                for key in list(model_file_names.keys()):
-                    model_file_names[key + "_bin"] = model_file_names[key].replace(".xml", ".bin")
+                model_file_names["decoder_past"] = decoder_past_file_name
+            # Add the binary files
+            for key in list(model_file_names.keys()):
+                model_file_names[key + "_bin"] = model_file_names[key].replace(".xml", ".bin")
             file_names = model_file_names.copy()
             for name, file_name in model_file_names.items():
                 model_cache_path = hf_hub_download(
@@ -218,16 +206,14 @@ class OVBaseModelForSeq2SeqLM(OVBaseModel):
                 )
                 file_names[name] = model_cache_path
             kwargs["model_save_dir"] = Path(model_cache_path).parent
-            encoder = cls.load_model(file_names["encoder"], bin_file_name=file_names.pop("encoder_bin", None))
-            decoder = cls.load_model(file_names["decoder"], bin_file_name=file_names.pop("decoder_bin", None))
+            encoder = cls.load_model(file_names["encoder"], file_names["encoder_bin"])
+            decoder = cls.load_model(file_names["decoder"], file_names["decoder_bin"])
             if use_cache:
-                decoder_with_past = cls.load_model(
-                    file_names["decoder_with_past"], bin_file_name=file_names.pop("decoder_with_past_bin", None)
-                )
+                decoder_past = cls.load_model(file_names["decoder_past"], file_names["decoder_past_bin"])
             else:
-                decoder_with_past = None
+                decoder_past = None
 
-        return cls(encoder, decoder, decoder_with_past, config=config, **kwargs)
+        return cls(encoder, decoder, decoder_past, config=config, **kwargs)
 
     @classmethod
     def _from_transformers(
@@ -259,8 +245,35 @@ class OVBaseModelForSeq2SeqLM(OVBaseModel):
         save_dir.mkdir(parents=True, exist_ok=True)
         kwargs["model_save_dir"] = save_dir
         use_cache = kwargs.get("use_cache", True)
-        preprocessor = get_preprocessor(model_id)
 
+        # TODO: Remove with next openvino release
+        if use_cache:
+            logger.warning(
+                "The `use_cache` argument is changed to `False`, its support will be enabled in the next release."
+            )
+            use_cache = False
+
+        encoder_file_name = save_dir.joinpath(OV_ENCODER_NAME)
+        decoder_file_name = save_dir.joinpath(OV_DECODER_NAME)
+        decoder_past_file_name = save_dir.joinpath(OV_DECODER_WITH_PAST_NAME)
+        encoder_bin_file_name = encoder_file_name.parent.joinpath(encoder_file_name.stem + ".bin")
+        decoder_bin_file_name = decoder_file_name.parent.joinpath(decoder_file_name.stem + ".bin")
+        decoder_past_bin_file_name = decoder_past_file_name.parent.joinpath(decoder_past_file_name.stem + ".bin")
+
+        # If already present in cache, we load the model directly
+        if (
+            encoder_file_name.is_file()
+            and encoder_bin_file_name.is_file()
+            and decoder_file_name.is_file()
+            and decoder_bin_file_name.is_file()
+            and (not use_cache or decoder_past_file_name.is_file())
+            and (not use_cache or decoder_past_bin_file_name.is_file())
+        ):
+            return cls._from_pretrained(save_dir, **kwargs)
+
+        config_dict = kwargs.pop("config", {})
+        config = PretrainedConfig.from_dict(config_dict)
+        preprocessor = get_preprocessor(model_id)
         model = FeaturesManager.get_model_from_feature(cls.export_feature, model_id)
         _, model_onnx_config = FeaturesManager.check_supported_model_or_raise(model, feature=cls.export_feature)
         onnx_config = model_onnx_config(model.config)
@@ -292,6 +305,12 @@ class OVBaseModelForSeq2SeqLM(OVBaseModel):
             output=save_dir.joinpath(ONNX_DECODER_NAME),
         )
 
+        encoder = cls.load_model(save_dir.joinpath(ONNX_ENCODER_NAME))
+        decoder = cls.load_model(save_dir.joinpath(ONNX_DECODER_NAME))
+        decoder_with_past = None
+        models = [encoder, decoder]
+        dst_file_names = [OV_ENCODER_NAME, OV_DECODER_NAME]
+
         # Export the decoder with the past key values
         if use_cache:
             export(
@@ -301,11 +320,17 @@ class OVBaseModelForSeq2SeqLM(OVBaseModel):
                 opset=onnx_opset,
                 output=save_dir.joinpath(ONNX_DECODER_WITH_PAST_NAME),
             )
+            decoder_with_past = cls.load_model(save_dir.joinpath(ONNX_DECODER_WITH_PAST_NAME))
+            models.append(decoder_with_past)
+            dst_file_names.append(OV_DECODER_WITH_PAST_NAME)
 
-        kwargs["config"] = model.config.__dict__
-        kwargs["from_onnx"] = True
+        for model, dst_file_name in zip(models, dst_file_names):
+            dst_path = os.path.join(save_dir, dst_file_name)
+            pass_manager = passes.Manager()
+            pass_manager.register_pass("Serialize", dst_path, dst_path.replace(".xml", ".bin"))
+            pass_manager.run_passes(model)
 
-        return cls._from_pretrained(save_dir, **kwargs)
+        return cls(encoder, decoder, decoder_with_past, config=config, **kwargs)
 
     def forward(self, *args, **kwargs):
         raise NotImplementedError

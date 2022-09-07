@@ -124,25 +124,19 @@ class OVBaseModel(OptimizedModel):
             local_files_only(`bool`, *optional*, defaults to `False`):
                 Whether or not to only look at local files (i.e., do not try to download the model).
         """
-        from_onnx = kwargs.pop("from_onnx", False)
         local_files_only = kwargs.pop("local_files_only", False)
         config_dict = kwargs.pop("config", {})
         config = PretrainedConfig.from_dict(config_dict)
-        default_file_name = ONNX_WEIGHTS_NAME if from_onnx else OV_WEIGHTS_NAME
-        file_name = file_name or default_file_name
+        file_name = file_name or OV_WEIGHTS_NAME
 
         # Load the model from local directory
         if os.path.isdir(model_id):
             file_name = os.path.join(model_id, file_name)
-            bin_file_name = file_name.replace(".xml", ".bin") if not from_onnx else None
-            model = cls.load_model(file_name, bin_file_name)
+            model = cls.load_model(file_name, file_name.replace(".xml", ".bin"))
             kwargs["model_save_dir"] = model_id
         # Download the model from the hub
         else:
-            model_file_names = [file_name]
-            # If not ONNX then OpenVINO IR
-            if not from_onnx:
-                model_file_names.append(file_name.replace(".xml", ".bin"))
+            model_file_names = [file_name, file_name.replace(".xml", ".bin")]
             file_names = []
             for file_name in model_file_names:
                 model_cache_path = hf_hub_download(
@@ -154,10 +148,9 @@ class OVBaseModel(OptimizedModel):
                     force_download=force_download,
                     local_files_only=local_files_only,
                 )
-                file_names.append(Path(model_cache_path).name)
+                file_names.append(model_cache_path)
             kwargs["model_save_dir"] = Path(model_cache_path).parent
-            bin_file_name = file_names[1] if not from_onnx else None
-            model = cls.load_model(file_names[0], bin_file_name=bin_file_name)
+            model = cls.load_model(file_names[0], file_names[1])
         return cls(model, config=config, **kwargs)
 
     @classmethod
@@ -189,7 +182,15 @@ class OVBaseModel(OptimizedModel):
         save_dir = Path(save_dir).joinpath(model_id)
         save_dir.mkdir(parents=True, exist_ok=True)
         kwargs["model_save_dir"] = save_dir
+        file_name = save_dir.joinpath(ONNX_WEIGHTS_NAME)
+        ov_file_name = save_dir.joinpath(OV_WEIGHTS_NAME)
 
+        # If already present in cache, we load the model directly
+        if ov_file_name.is_file() and ov_file_name.parent.joinpath(ov_file_name.stem + ".bin").is_file():
+            return cls._from_pretrained(save_dir, **kwargs)
+
+        config_dict = kwargs.pop("config", {})
+        config = PretrainedConfig.from_dict(config_dict)
         # Get the task to load and export the model with the right topology if available else extract it from the hub
         if cls.export_feature is not None:
             task = cls.export_feature
@@ -213,12 +214,13 @@ class OVBaseModel(OptimizedModel):
             model=model,
             config=onnx_config,
             opset=onnx_config.default_onnx_opset,
-            output=save_dir.joinpath(ONNX_WEIGHTS_NAME),
+            output=file_name,
         )
-        kwargs["config"] = model.config.__dict__
-        kwargs["from_onnx"] = True
-
-        return cls._from_pretrained(save_dir, **kwargs)
+        model = cls.load_model(file_name)
+        pass_manager = passes.Manager()
+        pass_manager.register_pass("Serialize", str(ov_file_name), str(ov_file_name).replace(".xml", ".bin"))
+        pass_manager.run_passes(model)
+        return cls(model, config=config, **kwargs)
 
     def _create_infer_request(self, model):
         compiled_model = core.compile_model(model, self._device, self.ov_config)
