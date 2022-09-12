@@ -4,16 +4,16 @@
 
 # Optimum Intel
 
-🤗 Optimum Intel is the interface between the 🤗 Transformers library and the different tools and libraries provided by Intel to accelerate end-to-end pipelines on Intel architectures.
-
-Intel [Neural Compressor](https://www.intel.com/content/www/us/en/developer/tools/oneapi/neural-compressor.html) is an open-source library enabling the usage of the most popular compression techniques such as quantization, pruning and knowledge distillation. It supports automatic accuracy-driven tuning strategies in order for users to easily generate quantized model. The users can easily apply static, dynamic and aware-training quantization approaches while giving an expected accuracy criteria. It also supports different weight pruning techniques enabling the creation of pruned model giving a predefined sparsity target.
+🤗 Optimum Intel is the interface between the 🤗 Transformers library and the different optmization and inference tools and libraries provided by Intel to accelerate end-to-end pipelines on Intel architectures. 
 
 [OpenVINO](https://docs.openvino.ai/latest/index.html) is an open-source toolkit enabling model optimization and providing high-performance inference solutions for XPUs including various types of CPUs, GPUs, and special DL inference accelerators.
+
+Intel [Neural Compressor](https://www.intel.com/content/www/us/en/developer/tools/oneapi/neural-compressor.html) is an open-source library enabling the usage of the most popular compression techniques such as quantization, pruning and knowledge distillation. It supports automatic accuracy-driven tuning strategies in order for users to easily generate quantized model. The users can easily apply static, dynamic and aware-training quantization approaches while giving an expected accuracy criteria. It also supports different weight pruning techniques enabling the creation of pruned model giving a predefined sparsity target.
 
 ## Install
 To install the latest release of this package:
 
-`pip install optimum[intel]`
+`pip install optimum[openvino,neural-compressor]`
 
 Optimum Intel is a fast-moving project, and you may want to install from source.
 
@@ -32,6 +32,57 @@ pip install -r requirements.txt
 ```
 
 ## How to use it?
+
+### Inference with OpenVINO
+Optimium provides interface for inference with OpenVINO which is the similar to other supported beckends. Below is an example of using the model from HuggingFace model hub for Question Answering task:
+
+- Out-of-the-box inference
+```python
+from transformers import (
+    AutoTokenizer,
+    pipeline
+)
+from optimum.intel.openvino.modeling import OVModelForQuestionAnswering
+
+model_checkpoint = "deepset/roberta-base-squad2"
+save_directory = "tmp/onnx/"
+file_name = "model.xml"
+
+# Step 1: Load model from the HF Hub
+model = OVModelForQuestionAnswering.from_pretrained(model_checkpoint, from_transformers=True)
+tokenizer = AutoTokenizer.from_pretrained(model_checkpoint)
+
+# Step 2:Save model and tokenizer
+model.save_pretrained(save_directory, file_name=file_name)
+tokenizer.save_pretrained(save_directory)
+
+# Step 3: do the inference
+model = OVModelForQuestionAnswering.from_pretrained(save_directory, file_name=file_name)
+tokenizer = AutoTokenizer.from_pretrained(save_directory)
+
+pipe = pipeline("question-answering", model=model, tokenizer=tokenizer)
+question, context = "Who was Jim Henson?", "Jim Henson was a nice puppet"
+
+outputs = pipe(question, context)
+```
+
+- Using static sequence lenght for faster inference
+```python
+model = OVModelForQuestionAnswering.from_pretrained(save_directory, file_name=file_name)
+model.reshape([1,32]) # Fix sequence length to 32
+```
+
+- Use GPU for inference
+```python
+
+model = OVModelForQuestionAnswering.from_pretrained(save_directory, file_name=file_name)
+model.reshape([1,32]) # Currently, OpenVINO GPU puling supports only static sequence length
+model.to("GPU")
+
+model.half() # (Optional) Use FP16 precision for faster inference
+```
+
+### Model optimization with Neural Compressor
 
 Here is an example on how to combine magnitude pruning with dynamic quantization while fine-tuning a DistilBERT on the sst-2 task.
 Note that quantization is currently only supported for CPUs (only CPU backends are available), so we will not be utilizing GPUs / CUDA in this example.
