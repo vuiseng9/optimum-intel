@@ -37,30 +37,6 @@ python run_glue.py \
     --output_dir /tmp/sst2_output
 ```
 
-The following example reloads the quantized DistilBERT and verifies the accuracy on sst-2 task. 
-
-```bash
-python run_glue.py \
-    --model_name_or_path /tmp/sst2_output \
-    --task_name sst2 \
-    --do_eval \
-    --load_int8 \
-    --verify_loading \
-    --output_dir /tmp/sst2_log
-```
-
-[Int8 models](https://huggingface.co/models?other=Intel%C2%AE%20Neural%20Compressor) on the model hub are also available for direct loading.
-
-```bash
-python run_glue.py \
-    --model_name_or_path Intel/distilbert-base-uncased-finetuned-sst-2-english-int8-static \
-    --task_name sst2 \
-    --do_eval \
-    --load_int8 \
-    --verify_loading \
-    --output_dir /tmp/sst2_log
-```
-
 The following example fine-tunes DistilBERT on the sst-2 task while applying knowledge distillation with quantization aware training.
 
 ```bash
@@ -77,15 +53,14 @@ python run_glue.py \
     --output_dir /tmp/sst2_output
 ```
 
-The following example fine-tunes DistilBERT on the sst-2 task while applying magnitude pruning and then applies 
-dynamic quantization as a second step.
+The following example load a dynamically quantized DistilBERT fine-tuned on the sst-2 task and apply magnitude pruning as a second step.
+You can load many more quantized models hosted on the hub under the Intel organization [`here`](https://huggingface.co/models?other=int8,Intel%C2%AE%20Neural%20Compressor&sort=downloads).
 
 ```bash
 python run_glue.py \
-    --model_name_or_path distilbert-base-uncased-finetuned-sst-2-english \
+    --model_name_or_path Intel/distilbert-base-uncased-finetuned-sst-2-english-int8-dynamic \
     --task_name sst2 \
-    --apply_quantization \
-    --quantization_approach dynamic \
+    --load_int8_model \
     --apply_pruning \
     --target_sparsity 0.1 \
     --do_train \

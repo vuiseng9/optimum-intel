@@ -90,11 +90,17 @@ class TestExamples(unittest.TestCase):
                 run_glue.py
                 --model_name_or_path {tmp_dir}
                 --task_name sst2
-                --metric eval_accuracy
+                --load_int8_model
+                --apply_pruning
+                --target_sparsity 0.01
                 --do_eval
+                --do_train
                 --per_device_eval_batch_size 1
-                --max_eval_samples 50
-                --load_int8 \
+                --per_device_train_batch_size 1
+                --max_eval_samples 4
+                --max_train_samples 4
+                --num_train_epoch 1
+                --learning_rate 1e-10
                 --verify_loading
                 --output_dir {tmp_dir}
                 """.split()
@@ -102,7 +108,7 @@ class TestExamples(unittest.TestCase):
             with patch.object(sys, "argv", test_args):
                 run_glue.main()
                 results = get_results(tmp_dir)
-                self.assertGreaterEqual(results["eval_accuracy"], 0.70)
+                self.assertGreaterEqual(results["eval_accuracy"], 0.60)
 
     def test_run_qa(self):
         quantization_approach = "static"
