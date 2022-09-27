@@ -12,6 +12,9 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+from nncf.torch import patch_torch_operators
+patch_torch_operators()
+
 from .modeling import (
     OVModelForFeatureExtraction,
     OVModelForImageClassification,
