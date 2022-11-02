@@ -45,7 +45,7 @@ from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
 
 import evaluate
-from optimum.intel.openvino import OVConfig
+from optimum.intel.openvino import OVTrainingArguments
 from trainer_qa import QuestionAnsweringOVTrainer
 from utils_qa import postprocess_qa_predictions
 
@@ -221,7 +221,7 @@ def main():
     # or by passing the --help flag to this script.
     # We now keep distinct sets of args, for a cleaner separation of concerns.
 
-    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
+    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, OVTrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
         # let's parse it to get our arguments.
@@ -601,12 +601,10 @@ def main():
     def compute_metrics(p: EvalPrediction):
         return metric.compute(predictions=p.predictions, references=p.label_ids)
 
-    ov_config = OVConfig()
 
     # Initialize our Trainer
     trainer = QuestionAnsweringOVTrainer(
         model=model,
-        ov_config=ov_config,
         feature="question-answering",
         args=training_args,
         train_dataset=train_dataset if training_args.do_train else None,

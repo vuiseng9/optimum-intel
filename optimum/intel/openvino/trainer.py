@@ -21,6 +21,9 @@ import time
 import warnings
 from itertools import chain
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
+import jstyleson as json
+from pathlib import Path
+from nncf.common.utils.os import safe_open
 
 import torch
 import torch.distributed as dist
@@ -49,7 +52,6 @@ from transformers.trainer_utils import (
     has_length,
     speed_metrics,
 )
-from transformers.training_args import TrainingArguments
 from transformers.utils import WEIGHTS_NAME, TensorType, is_apex_available, is_sagemaker_mp_enabled, logging
 
 import openvino
@@ -64,6 +66,7 @@ from optimum.utils import logging
 
 from .configuration import OVConfig
 from .quantization import OVDataLoader
+from .training_args import OVTrainingArguments
 from .utils import MAX_ONNX_OPSET, MAX_ONNX_OPSET_2022_2_0, OV_XML_FILE_NAME
 
 
@@ -90,7 +93,7 @@ class OVTrainer(Trainer):
     def __init__(
         self,
         model: Union[PreTrainedModel, torch.nn.Module] = None,
-        args: TrainingArguments = None,
+        args: OVTrainingArguments = None,
         data_collator: Optional[DataCollator] = None,
         train_dataset: Optional[Dataset] = None,
         eval_dataset: Optional[Dataset] = None,
@@ -100,7 +103,6 @@ class OVTrainer(Trainer):
         callbacks: Optional[List[TrainerCallback]] = None,
         optimizers: Tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR] = (None, None),
         preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = None,
-        ov_config: Optional[OVConfig] = None,
         feature: Optional[str] = None,
     ):
 
@@ -118,9 +120,16 @@ class OVTrainer(Trainer):
             preprocess_logits_for_metrics,
         )
 
-        self.ov_config = ov_config
         self.feature = feature
         self.compression_controller = None
+
+        if args.nncf_compression_config is not None:
+            file_path = Path(args.nncf_compression_config).resolve()
+            with safe_open(file_path) as f:
+                compression = json.load(f)
+            self.ov_config = OVConfig(compression=compression)
+        else:
+            self.ov_config = OVConfig()
 
         if self.ov_config is not None and self.args.do_train:
             self._set_feature()
