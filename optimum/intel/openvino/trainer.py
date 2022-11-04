@@ -50,11 +50,12 @@ from transformers.trainer_utils import (
     speed_metrics,
 )
 from transformers.training_args import TrainingArguments
-from transformers.utils import WEIGHTS_NAME, TensorType, is_apex_available, is_sagemaker_mp_enabled, logging
+from transformers.utils import WEIGHTS_NAME, TensorType, is_apex_available, is_sagemaker_mp_enabled, is_torch_tpu_available, logging
 
 import openvino
 from nncf import NNCFConfig
 from nncf.common.utils.logger import set_log_level
+from nncf.common.utils.tensorboard import prepare_for_tensorboard
 from nncf.config.structures import BNAdaptationInitArgs, QuantizationRangeInitArgs
 from nncf.torch import create_compressed_model
 from nncf.torch.nncf_network import NNCFNetwork
@@ -228,6 +229,10 @@ class OVTrainer(Trainer):
         if args.gradient_checkpointing:
             self.model.gradient_checkpointing_enable()
 
+        # TODO: verify NNCF-wrapped distributed training
+        if self.args.local_rank != -1:
+            if self.compression_controller is not None:
+                self.compression_controller.distributed()
         model = self._wrap_model(self.model_wrapped)
 
         if is_sagemaker_mp_enabled() and resume_from_checkpoint is not None:
@@ -330,7 +335,9 @@ class OVTrainer(Trainer):
                     _ = list(train_dataloader.sampler)
 
         for epoch in range(epochs_trained, num_train_epochs):
-
+            if self.compression_controller is not None:
+                self.compression_controller.scheduler.epoch_step()
+                print(self.compression_controller.statistics().to_str())
             if isinstance(train_dataloader, DataLoader) and isinstance(train_dataloader.sampler, DistributedSampler):
                 train_dataloader.sampler.set_epoch(epoch)
             elif hasattr(train_dataloader, "dataset") and isinstance(train_dataloader.dataset, IterableDatasetShard):
@@ -370,9 +377,11 @@ class OVTrainer(Trainer):
 
                 if step % args.gradient_accumulation_steps == 0:
                     self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
-                    if self.compression_controller is not None:
-                        # Must be called at the beginning of each training step to prepare the compression method
-                        self.compression_controller.scheduler.step()
+                    # TODO: this was the original adaptation for nncf scheduler stepping. 
+                    # To review if this is the right place or at line 439
+                    # if self.compression_controller is not None:
+                    #     # Must be called at the beginning of each training step to prepare the compression method
+                    #     self.compression_controller.scheduler.step()
 
                 if (
                     ((step + 1) % args.gradient_accumulation_steps != 0)
@@ -425,6 +434,8 @@ class OVTrainer(Trainer):
                             )
 
                     # Optimizer step
+                    if self.compression_controller is not None:
+                        self.compression_controller.scheduler.step()
                     optimizer_was_run = True
                     if self.deepspeed:
                         pass  # called outside the loop
@@ -443,6 +454,7 @@ class OVTrainer(Trainer):
                     model.zero_grad()
                     self.state.global_step += 1
                     self.state.epoch = epoch + (step + 1) / steps_in_epoch
+                    self.state.curr_loss = tr_loss_step.cpu().detach().item()
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
 
                     self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
@@ -498,6 +510,65 @@ class OVTrainer(Trainer):
 
         return TrainOutput(self.state.global_step, train_loss, metrics)
 
+    def compute_loss(self, model, inputs, return_outputs=False):
+        retval = super().compute_loss(model, inputs, return_outputs)
+        
+        if return_outputs is True:
+            loss, outputs = retval
+        else:
+            loss = retval
+
+        if self.compression_controller is not None:
+            compression_loss = self.compression_controller.loss()
+            loss += compression_loss
+
+        return (loss, outputs) if return_outputs else loss
+
+    def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch, ignore_keys_for_eval):
+        if self.control.should_log:
+            if is_torch_tpu_available():
+                xm.mark_step()
+
+            logs: Dict[str, float] = {}
+
+            # all_gather + mean() to get average loss over all processes
+            tr_loss_scalar = self._nested_gather(tr_loss).mean().item()
+
+            # reset tr_loss to zero
+            tr_loss -= tr_loss
+
+            logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
+            logs["learning_rate"] = self._get_learning_rate()
+
+            if self.compression_controller is not None:
+                logs["compression_loss"] = self.compression_controller.loss().item()
+                compression_stats = self.compression_controller.statistics()
+                for key, value in prepare_for_tensorboard(compression_stats).items():
+                    logs["compression/statistics/{0}".format(key)] = value
+
+            self._total_loss_scalar += tr_loss_scalar
+            self._globalstep_last_logged = self.state.global_step
+            self.store_flos()
+
+            self.log(logs)
+
+        metrics = None
+        if self.control.should_evaluate:
+            if isinstance(self.eval_dataset, dict):
+                for eval_dataset_name, eval_dataset in self.eval_dataset.items():
+                    metrics = self.evaluate(
+                        eval_dataset=eval_dataset,
+                        ignore_keys=ignore_keys_for_eval,
+                        metric_key_prefix=f"eval_{eval_dataset_name}",
+                    )
+            else:
+                metrics = self.evaluate(ignore_keys=ignore_keys_for_eval)
+            self._report_to_hp_search(trial, self.state.global_step, metrics)
+
+        if self.control.should_save:
+            self._save_checkpoint(model, trial, metrics=metrics)
+            self.control = self.callback_handler.on_save(self.args, self.state, self.control)
+
     def _save(self, output_dir: Optional[str] = None, state_dict=None):
         # If we are executing this function, we are the process zero, so we don't check for that.
         output_dir = output_dir if output_dir is not None else self.args.output_dir
@@ -538,16 +609,16 @@ class OVTrainer(Trainer):
             model_type = self.model.config.model_type.replace("_", "-")
             onnx_config_cls = FeaturesManager._SUPPORTED_MODEL_TYPE[model_type][self.feature]
             onnx_config = onnx_config_cls(self.model.config)
-            use_external_data_format = (
-                onnx_config.use_external_data_format(self.model.num_parameters()) or self.ov_config.save_onnx_model
-            )
-            f = io.BytesIO() if not use_external_data_format else os.path.join(output_dir, "model.onnx")
-            self._onnx_export(self.model, onnx_config, self.ov_config, f)
+            use_external_data_format = onnx_config.use_external_data_format(self.model.num_parameters())
+            # TODO: Temporary disable this until serialization is patched, currently error out at this stage
+            if False:
+                f = io.BytesIO() if not use_external_data_format else output_path.replace(".xml", ".onnx")
+                self._onnx_export(self.model, onnx_config, f)
 
-            # Load and save the compressed model
-            model = core.read_model(f) if use_external_data_format else core.read_model(f.getvalue(), b"")
-            compress_quantize_weights_transformation(model)
-            openvino.runtime.serialize(model, output_path, output_path.replace(".xml", ".bin"))
+                # Load and save the compressed model
+                model = core.read_model(f) if use_external_data_format else core.read_model(f.getvalue(), b"")
+                compress_quantize_weights_transformation(model)
+                openvino.runtime.serialize(model, output_path, output_path.replace(".xml", ".bin"))
 
     def _set_feature(self):
         if self.feature is None:
@@ -597,6 +668,6 @@ class OVTrainer(Trainer):
                 output_names=list(config.outputs.keys()),
                 dynamic_axes={name: axes for name, axes in chain(config.inputs.items(), config.outputs.items())},
                 do_constant_folding=True,
-                opset_version=opset,
+                opset_version=opset, #TODO: validate on multiple models pertaining to opset
             )
             model.enable_dynamic_graph_building()
