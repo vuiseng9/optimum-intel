@@ -1,0 +1,21 @@
+{
+    "algorithm": "movement_sparsity",
+    "params": {
+        "schedule": "threshold_polynomial_decay",
+        "power": 3,
+        "init_importance_threshold": -10.0,
+        "final_importance_threshold": 0.0,
+        "warmup_start_epoch": 2,
+        "warmup_end_epoch": 5,
+        // "steps_per_epoch": 5533,
+        "importance_regularization_factor": 0.030,
+        "update_per_optimizer_step": true,
+    },
+    "sparse_structure_by_scopes": [
+        {"mode": "block", "sparse_factors": [16, 16], "target_scopes": "{re}.*SwinAttention*"},
+        {"mode": "per_dim", "axis": 0, "target_scopes": "{re}.*SwinIntermediate.*"},
+        {"mode": "per_dim", "axis": 1, "target_scopes": "{re}.*SwinOutput.*"}
+    ],
+    "ignored_scopes": ["{re}.*PatchEmbed.*", "{re}.*PatchMerging.*", "{re}.*unbind.*", "{re}.*classifier.*", "{re}.*LayerNorm.*"],
+    // "ignored_scopes": ["{re}.*NNCFEmbedding", "{re}.*qa_outputs*", "{re}.*LayerNorm.*"]
+}
