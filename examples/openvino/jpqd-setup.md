@@ -22,6 +22,9 @@ pip install ninja==1.10.2.4
 # Install dependent packages required in examples (we avoid requirements.txt in examples folder)
 pip install torchvision evaluate wandb openvino
 
+# OV IR serialization/generation will error out for prior version
+pip install openvino-dev==2022.3.0.dev20221103
+
 # Run movement sparsification on examples 
 # there are bash (*.sh) scripts in examples/openvino/<task>/*.sh
 ```
