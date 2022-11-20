@@ -604,21 +604,23 @@ class OVTrainer(Trainer):
             self.ov_config.save_pretrained(output_dir)
 
             # Export the compressed model to the ONNX format
-            output_path = os.path.join(output_dir, OV_XML_FILE_NAME)
+            ir_output_dir = os.path.join(output_dir, "ir")
+            os.makedirs(ir_output_dir, exist_ok=True)
+            output_path = os.path.join(ir_output_dir, OV_XML_FILE_NAME)
             self.compression_controller.prepare_for_export()
             model_type = self.model.config.model_type.replace("_", "-")
             onnx_config_cls = FeaturesManager._SUPPORTED_MODEL_TYPE[model_type][self.feature]
             onnx_config = onnx_config_cls(self.model.config)
             use_external_data_format = onnx_config.use_external_data_format(self.model.num_parameters())
-            # TODO: Temporary disable this until serialization is patched, currently error out at this stage
-            if False:
-                f = io.BytesIO() if not use_external_data_format else output_path.replace(".xml", ".onnx")
-                self._onnx_export(self.model, onnx_config, f)
+            # TODO: to review if onnx is required.
+            self._onnx_export(self.model, onnx_config, output_path.replace(".xml", ".onnx"))
+            f = io.BytesIO() if not use_external_data_format else output_path.replace(".xml", ".onnx")
+            self._onnx_export(self.model, onnx_config, f)
 
-                # Load and save the compressed model
-                model = core.read_model(f) if use_external_data_format else core.read_model(f.getvalue(), b"")
-                compress_quantize_weights_transformation(model)
-                openvino.runtime.serialize(model, output_path, output_path.replace(".xml", ".bin"))
+            # Load and save the compressed model
+            model = core.read_model(f) if use_external_data_format else core.read_model(f.getvalue(), b"")
+            compress_quantize_weights_transformation(model)
+            openvino.runtime.serialize(model, output_path, output_path.replace(".xml", ".bin"))
 
     def _set_feature(self):
         if self.feature is None:
