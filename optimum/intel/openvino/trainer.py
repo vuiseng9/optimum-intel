@@ -36,11 +36,11 @@ from transformers.deepspeed import deepspeed_init
 from transformers.integrations import hp_params
 from transformers.modeling_utils import PreTrainedModel, unwrap_model
 from transformers.onnx import FeaturesManager, OnnxConfig
-from transformers.pytorch_utils import is_torch_less_than_1_11
+from transformers.pytorch_utils import is_torch_less_than_1_11, ALL_LAYERNORM_LAYERS
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from transformers.trainer import TRAINER_STATE_NAME, TRAINING_ARGS_NAME
 from transformers.trainer_callback import TrainerCallback, TrainerState
-from transformers.trainer_pt_utils import IterableDatasetShard
+from transformers.trainer_pt_utils import IterableDatasetShard, get_parameter_names
 from transformers.trainer_utils import (
     EvalPrediction,
     HPSearchBackend,
@@ -509,6 +509,48 @@ class OVTrainer(Trainer):
         self.control = self.callback_handler.on_train_end(args, self.state, self.control)
 
         return TrainOutput(self.state.global_step, train_loss, metrics)
+
+
+    def create_optimizer(self):
+        """
+        Setup the optimizer.
+
+        We provide a reasonable default that works well. If you want to use something else, you can pass a tuple in the
+        Trainer's init through `optimizers`, or subclass and override this method in a subclass.
+        """
+        opt_model = self.model_wrapped if is_sagemaker_mp_enabled() else self.model
+
+        if self.optimizer is None:
+            score_params = []
+            for n, p in opt_model.named_parameters():
+                if not p.requires_grad:
+                    continue
+                if "importance" in n:
+                    score_params.append(p)
+            decay_parameters = get_parameter_names(opt_model, ALL_LAYERNORM_LAYERS)
+            decay_parameters = [name for name in decay_parameters if "bias" not in name]
+            decay_parameters = [name for name in decay_parameters if "importance" not in name]
+            optimizer_grouped_parameters = [
+                {
+                    "params": score_params,
+                    "weight_decay": 0.0,
+                    "lr": 0.01
+                },
+                {
+                    "params": [p for n, p in opt_model.named_parameters() if n in decay_parameters],
+                    "weight_decay": self.args.weight_decay,
+                },
+                {
+                    "params": [p for n, p in opt_model.named_parameters() if n not in decay_parameters and 'importance' not in n],
+                    "weight_decay": 0.0,
+                },
+            ]
+
+            optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(self.args)
+            self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
+
+        return self.optimizer
+
 
     def compute_loss(self, model, inputs, return_outputs=False):
         retval = super().compute_loss(model, inputs, return_outputs)
