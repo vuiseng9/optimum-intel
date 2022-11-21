@@ -25,6 +25,9 @@ pip install torchvision evaluate wandb openvino
 # OV IR serialization/generation will error out for prior version
 pip install openvino-dev==2022.3.0.dev20221103
 
+# openvino requires ~1.1.5 which fails to support df.to_markdown()
+pip install --upgrade pandas
+
 # Run movement sparsification on examples 
 # there are bash (*.sh) scripts in examples/openvino/<task>/*.sh
 ```
