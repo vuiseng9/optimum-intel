@@ -50,7 +50,7 @@ from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
 
 import evaluate
-from optimum.intel.openvino import OVConfig, OVTrainer
+from optimum.intel.openvino import OVConfig, OVTrainer, OVTrainingArguments
 
 import jstyleson as json
 from pathlib import Path
@@ -158,17 +158,6 @@ class ModelArguments:
     ignore_mismatched_sizes: bool = field(
         default=False,
         metadata={"help": "Will enable to load a pretrained model whose head dimensions are different."},
-    )
-
-
-@dataclass
-class OVTrainingArguments(TrainingArguments):
-    """
-    Arguments pertaining to OpenVINO/NNCF-enabled training flow
-    """
-
-    nncf_compression_config: str = field(default=None,
-        metadata={"help": "NNCF configuration .json file for compression-enabled training"}
     )
 
 

@@ -19,11 +19,13 @@ import os
 import sys
 import time
 import warnings
+from collections import defaultdict
 from itertools import chain
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.distributed as dist
+import torch.nn.functional as F
 from packaging import version
 from torch.onnx import export as onnx_export
 from torch.utils.data import DataLoader, Dataset, RandomSampler
@@ -49,7 +51,6 @@ from transformers.trainer_utils import (
     has_length,
     speed_metrics,
 )
-from transformers.training_args import TrainingArguments
 from transformers.utils import WEIGHTS_NAME, TensorType, is_apex_available, is_sagemaker_mp_enabled, is_torch_tpu_available, logging
 
 import openvino
@@ -67,7 +68,7 @@ from ..utils.import_utils import _openvino_version
 from .configuration import OVConfig
 from .quantization import OVDataLoader
 from .utils import MAX_ONNX_OPSET, MAX_ONNX_OPSET_2022_2_0, MIN_ONNX_QDQ_OPSET, OV_XML_FILE_NAME
-
+from .training_args import OVTrainingArguments
 
 if is_apex_available():
     from apex import amp
@@ -89,7 +90,8 @@ class OVTrainer(Trainer):
     def __init__(
         self,
         model: Union[PreTrainedModel, torch.nn.Module] = None,
-        args: TrainingArguments = None,
+        teacher_model: Union[PreTrainedModel, torch.nn.Module] = None,
+        args: OVTrainingArguments = None,
         data_collator: Optional[DataCollator] = None,
         train_dataset: Optional[Dataset] = None,
         eval_dataset: Optional[Dataset] = None,
@@ -119,7 +121,12 @@ class OVTrainer(Trainer):
 
         self.ov_config = ov_config
         self.feature = feature
+        self.teacher = teacher_model.to(args.device) if teacher_model else None
+        self.distillation_weight = args.distillation_weight
+        self.temperature = args.distillation_temperature 
         self.compression_controller = None
+        self.loss_counter = 0
+        self.metrics = defaultdict(float)
 
         if self.ov_config is not None and self.args.do_train:
             self._set_feature()
@@ -552,19 +559,50 @@ class OVTrainer(Trainer):
         return self.optimizer
 
 
+    def compute_distillation_loss(self, inputs, student_logits):
+        teacher_logits = self.teacher(**inputs)
+        return F.kl_div(
+                input=F.log_softmax(student_logits / self.temperature, dim=-1),
+                target=F.softmax(teacher_logits / self.temperature, dim=-1),
+                reduction="batchmean"
+                ) * (self.temperature ** 2)
+
+
     def compute_loss(self, model, inputs, return_outputs=False):
-        retval = super().compute_loss(model, inputs, return_outputs)
+        self.loss_counter += 1
+        if self.teacher is None:
+            retval = super().compute_loss(model, inputs, return_outputs)
         
-        if return_outputs is True:
-            loss, outputs = retval
+            if return_outputs is True:
+                loss, outputs = retval
+            else:
+                loss = retval
         else:
-            loss = retval
+            task_loss, outputs = super().compute_loss(model, inputs, return_outputs=True)
+            distillation_loss = self.compute_distillation_loss(inputs, outputs)
+            loss = ((1 - self.distillation_weight) * task_loss) + (self.distillation_weight * distillation_loss)
+            self.metrics["task_loss"] = task_loss.item()
+            self.metrics["distillation_loss"] = distillation_loss.item()
 
         if self.compression_controller is not None:
             compression_loss = self.compression_controller.loss()
             loss += compression_loss
-
+            self.metrics["compression_loss"] = compression_loss.item()
+            
+        self.metrics["loss"] = compression_loss.item()
         return (loss, outputs) if return_outputs else loss
+
+
+    def log(self, logs):
+        if self.loss_counter != 0:
+            for k, v in self.metrics.items():
+                logs[k] = float(v) / self.loss_counter
+
+            self.loss_counter = 0
+            self.metrics = defaultdict(float)
+
+        return super().log(logs)
+
 
     def _maybe_log_save_evaluate(self, tr_loss, model, trial, epoch, ignore_keys_for_eval):
         if self.control.should_log:
