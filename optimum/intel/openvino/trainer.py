@@ -581,6 +581,7 @@ class OVTrainer(Trainer):
             task_loss, outputs = super().compute_loss(model, inputs, return_outputs=True)
             distillation_loss = self.compute_distillation_loss(inputs, outputs)
             loss = ((1 - self.distillation_weight) * task_loss) + (self.distillation_weight * distillation_loss)
+
             self.metrics["task_loss"] = task_loss.item()
             self.metrics["distillation_loss"] = distillation_loss.item()
 
@@ -589,7 +590,6 @@ class OVTrainer(Trainer):
             loss += compression_loss
             self.metrics["compression_loss"] = compression_loss.item()
             
-        self.metrics["loss"] = compression_loss.item()
         return (loss, outputs) if return_outputs else loss
 
 
