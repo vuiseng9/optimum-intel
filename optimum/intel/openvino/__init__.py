@@ -25,6 +25,7 @@ if _nncf_available:
     from .configuration import OVConfig
     from .quantization import OVQuantizer
     from .trainer import OVTrainer
+    from .training_args import OVTrainingArguments
 
 from .modeling import (
     OVModelForCausalLM,
