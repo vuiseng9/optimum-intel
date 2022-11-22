@@ -15,6 +15,7 @@
 """
 A subclass of `OVTrainer` specific to Question-Answering tasks
 """
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -101,7 +102,9 @@ class QuestionAnsweringOVTrainer(OVTrainer):
 
 
     def compute_distillation_loss(self, inputs, student_logits):
-        teacher_logits = self.teacher(**inputs)
+        with torch.no_grad():
+            teacher_logits = self.teacher(**inputs)
+
         distilliation_loss_start = (
                 F.kl_div(
                     input=F.log_softmax(student_logits.start_logits / self.temperature, dim=-1),
@@ -131,8 +134,9 @@ class QuestionAnsweringOVTrainer(OVTrainer):
             else:
                 loss = retval
         else:
-            # TODO: this is temporary for convergence test against reference run
-            _, outputs = super().compute_loss(model, inputs, return_outputs=True)
+            # compute_loss is not used as QA distillation requires custom handling for outputs
+            # Using compute_loss incurs excessive computational footprint
+            outputs = self.model(**inputs)
             
             task_loss_start = self.criterion(outputs.start_logits, inputs["start_positions"])
             task_loss_end = self.criterion(outputs.end_logits, inputs["end_positions"])
