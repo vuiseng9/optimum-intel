@@ -124,6 +124,7 @@ class OVTrainer(Trainer):
         self.ov_config = ov_config
         self.feature = feature
         self.teacher = teacher_model.to(args.device) if teacher_model else None
+        self.teacher.eval()
         self.distillation_weight = args.distillation_weight
         self.temperature = args.distillation_temperature 
         self.compression_controller = None
@@ -562,7 +563,8 @@ class OVTrainer(Trainer):
 
 
     def compute_distillation_loss(self, inputs, student_logits):
-        teacher_logits = self.teacher(**inputs)
+        with torch.no_grad():
+            teacher_logits = self.teacher(**inputs)
         return F.kl_div(
                 input=F.log_softmax(student_logits / self.temperature, dim=-1),
                 target=F.softmax(teacher_logits / self.temperature, dim=-1),
