@@ -2,21 +2,21 @@
 
 export WANDB_DISABLED=false # Enable wandb
 export WANDB_WATCH=false # Disable gradient serialization to wandb
-export WANDB_USERNAME=yourid
-export WANDB_API_KEY=
+export WANDB_USERNAME=vchua
+export WANDB_API_KEY=f8a95080288950342f1695008cd8256adc3b0778
 
 # ---------------------------------------------------------------------------------------------
-export WANDB_PROJECT="optimum-ov (sixer)"
+export WANDB_PROJECT="optimum-ov (rtxws3)"
 export CUDA_VISIBLE_DEVICES=0
 
 NEPOCH=1
 RUNID=p4-jpqd-dev-qat-DistilBERT-squad-${NEPOCH}eph-refactor-for-mvmt
 
-OUTROOT=/data5/yourid/run/optimum-intel/
-WORKDIR=/data5/yourid/dev/optimum-intel/optimum-intel/examples/openvino/question-answering
+OUTROOT=/data1/vchua/run/optimum-rtxws3/
+WORKDIR=/data1/vchua/dev/optimum-rtxws3/optimum-intel/examples/openvino/question-answering
 
-CONDAROOT=/data5/yourid/miniconda3
-CONDAENV=optimum-intel
+CONDAROOT=/data1/vchua/miniconda3
+CONDAENV=optimum-rtxws3
 # ---------------------------------------------------------------------------------------------
 
 OUTDIR=$OUTROOT/$RUNID
@@ -38,7 +38,7 @@ python run_qa.py \
     --do_train \
     --learning_rate 3e-5 \
     --num_train_epochs $NEPOCH \
-    --per_device_eval_batch_size 8 \
+    --per_device_eval_batch_size 128 \
     --per_device_train_batch_size 8 \
     --max_seq_length 384 \
     --doc_stride 128 \
