@@ -121,10 +121,12 @@ class OVTrainer(Trainer):
 
         self.ov_config = ov_config
         self.feature = feature
-        self.teacher = teacher_model.to(args.device) if teacher_model else None
-        self.teacher.eval()
-        self.distillation_weight = args.distillation_weight
-        self.temperature = args.distillation_temperature 
+        self.teacher = None
+        if teacher_model is not None:
+            self.teacher = teacher_model.to(args.device)
+            self.teacher.eval()
+            self.distillation_weight = args.distillation_weight
+            self.temperature = args.distillation_temperature 
         self.compression_controller = None
         self.loss_counter = 0
         self.metrics = defaultdict(float)
