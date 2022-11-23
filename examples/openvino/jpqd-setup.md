@@ -31,3 +31,9 @@ pip install --upgrade pandas
 # Run movement sparsification on examples 
 # there are bash (*.sh) scripts in examples/openvino/<task>/*.sh
 ```
+
+# NEW Way of installation
+```bash
+pip install -e .[openvino,nncf]
+pip install tabulate evaluate wandb torchvision
+```
