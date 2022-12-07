@@ -39,6 +39,7 @@ python run_qa.py \
     --teacher_model_or_path bert-large-uncased-whole-word-masking-finetuned-squad \
     --distillation_weight 0.9 \
     --do_eval \
+    --fp16 \
     --do_train \
     --learning_rate 3e-5 \
     --num_train_epochs $NEPOCH \
