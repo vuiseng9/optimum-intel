@@ -695,12 +695,13 @@ class OVTrainer(Trainer):
             model_type = self.model.config.model_type.replace("_", "-")
             onnx_config_cls = FeaturesManager._SUPPORTED_MODEL_TYPE[model_type][self.feature]
             onnx_config = onnx_config_cls(self.model.config)
-            use_external_data_format = onnx_config.use_external_data_format(self.model.num_parameters())
+            use_external_data_format = (
+                onnx_config.use_external_data_format(self.model.num_parameters()) or self.ov_config.save_onnx_model
+            )
             # TODO: to review if onnx is required.
-            self._onnx_export(self.model, onnx_config, output_path.replace(".xml", ".onnx"))
+            self._onnx_export(self.model, onnx_config, self.ov_config, output_path.replace(".xml", ".onnx"))
             f = io.BytesIO() if not use_external_data_format else output_path.replace(".xml", ".onnx")
-            self._onnx_export(self.model, onnx_config, f)
-
+            self._onnx_export(self.model, onnx_config, self.ov_config, f)
             # Load and save the compressed model
             model = core.read_model(f) if use_external_data_format else core.read_model(f.getvalue(), b"")
             compress_quantize_weights_transformation(model)

@@ -1,7 +1,6 @@
 {
     "algorithm": "movement_sparsity",
     "params": {
-        "schedule": "threshold_polynomial_decay",
         "power": 3,
         "init_importance_threshold": -10.0,
         "final_importance_threshold": 0.0,
@@ -9,7 +8,6 @@
         "warmup_end_epoch": 10,
         "steps_per_epoch": 5533,
         "importance_regularization_factor": 0.030,
-        "update_per_optimizer_step": true,
     },
     "sparse_structure_by_scopes": [
         {"mode": "block", "sparse_factors": [32, 32], "target_scopes": "{re}.*BertAttention*"},
