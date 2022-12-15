@@ -2,13 +2,9 @@
     {
         "algorithm": "movement_sparsity",
         "params": {
-            "power": 3,
-            "init_importance_threshold": -10.0,
-            "final_importance_threshold": 0.0,
             "warmup_start_epoch": 1,
-            "warmup_end_epoch": 10,
-            "steps_per_epoch": 5533,
-            "importance_regularization_factor": 0.0200,
+            "warmup_end_epoch": 5,
+            "importance_regularization_factor": 0.01
         },
         "sparse_structure_by_scopes": [
             {"mode": "block", "sparse_factors": [32, 32], "target_scopes": "{re}.*BertAttention*"},
@@ -31,7 +27,6 @@
             },
 
             "batchnorm_adaptation": {
-                // "num_bn_adaptation_samples": 2
                 "num_bn_adaptation_samples": 200
             }
         },
