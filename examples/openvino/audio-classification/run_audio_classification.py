@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 from random import randint
 from typing import Optional
 
+from optimum.intel.openvino import OVConfig, OVTrainingArguments, OVTrainer
+
 import datasets
 import numpy as np
 from datasets import DatasetDict, load_dataset
@@ -33,14 +35,15 @@ from transformers import (
     AutoFeatureExtractor,
     AutoModelForAudioClassification,
     HfArgumentParser,
-    Trainer,
-    TrainingArguments,
     set_seed,
 )
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
 
+from nncf.common.utils.os import safe_open
+from pathlib import Path
+import jstyleson as json
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +193,7 @@ def main():
     # or by passing the --help flag to this script.
     # We now keep distinct sets of args, for a cleaner separation of concerns.
 
-    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
+    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, OVTrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
         # let's parse it to get our arguments.
@@ -278,6 +281,7 @@ def main():
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
     )
+    print(feature_extractor)
 
     # `datasets` takes care of automatically loading and resampling the audio,
     # so we just need to set the correct target sampling rate.
@@ -344,6 +348,13 @@ def main():
         use_auth_token=True if model_args.use_auth_token else None,
         ignore_mismatched_sizes=model_args.ignore_mismatched_sizes,
     )
+    teacher_model = None
+    if training_args.teacher_model_or_path is not None:
+        teacher_model = AutoModelForAudioClassification.from_pretrained(
+            training_args.teacher_model_or_path,
+            from_tf=bool(".ckpt" in training_args.teacher_model_or_path),
+            cache_dir=model_args.cache_dir,
+        )
 
     # freeze the convolutional waveform encoder
     if model_args.freeze_feature_encoder:
@@ -365,9 +376,26 @@ def main():
         # Set the validation transforms
         raw_datasets["eval"].set_transform(val_transforms, output_all_columns=False)
 
+    if training_args.nncf_compression_config is not None:
+        file_path = Path(training_args.nncf_compression_config).resolve()
+        with safe_open(file_path) as f:
+            compression = json.load(f)
+        ov_config = OVConfig(compression=compression)
+    else:
+        ov_config = OVConfig()
+    ov_config.log_dir = training_args.output_dir
+    ov_config.ignored_scopes = [
+        "{re}.*feature_extractor.*"
+    ]
+    from nncf.common.logging.logger import set_log_level
+    set_log_level(logging.INFO)
+
     # Initialize our trainer
-    trainer = Trainer(
+    trainer = OVTrainer(
         model=model,
+        teacher_model=teacher_model,
+        ov_config=ov_config,
+        feature='audio-classification',
         args=training_args,
         train_dataset=raw_datasets["train"] if training_args.do_train else None,
         eval_dataset=raw_datasets["eval"] if training_args.do_eval else None,
