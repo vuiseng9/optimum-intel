@@ -103,6 +103,7 @@ class OVTrainer(Trainer):
         preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = None,
         ov_config: Optional[OVConfig] = None,
         feature: Optional[str] = None,
+        onnx_config: Optional[OnnxConfig] = None,
     ):
 
         super().__init__(
@@ -121,6 +122,7 @@ class OVTrainer(Trainer):
 
         self.ov_config = ov_config
         self.feature = feature
+        self.onnx_config = onnx_config
         self.teacher = None
         if teacher_model is not None:
             self.teacher = teacher_model.to(args.device)
@@ -648,35 +650,11 @@ class OVTrainer(Trainer):
             output_path = os.path.join(output_dir, OV_XML_FILE_NAME)
             self.compression_controller.prepare_for_export()
             model_type = self.model.config.model_type.replace("_", "-")
-            if self.feature == 'audio-classification':  # TODO(yujie): better place for onnxconfig
-                from transformers.onnx import OnnxConfig
-                from transformers.onnx.utils import compute_effective_axis_dimension
-
-                class Wav2Vec2OnnxConfig(OnnxConfig):
-                    @property
-                    def inputs(self):
-                        dynamic_axis = {0: "batch", 1: "sequence"}
-                        return dict(
-                            [
-                                ("input_values", dynamic_axis),
-                            ]
-                        )
-
-                    def generate_dummy_inputs(self, preprocessor, batch_size: int = -1, seq_length: int = -1,
-                                              num_choices: int = -1, is_pair: bool = False, 
-                                              framework: Optional[TensorType] = None,
-                                              num_channels: int = 3, image_width: int = 40, 
-                                              image_height: int = 40, sampling_rate: int = 22050,
-                                              time_duration: float = 5, frequency: int = 220, 
-                                              tokenizer: "PreTrainedTokenizerBase" = None):
-                        batch_size = compute_effective_axis_dimension(batch_size, fixed_dimension=OnnxConfig.default_fixed_batch)
-                        dummy_input = self._generate_dummy_audio(batch_size, sampling_rate, time_duration, frequency)
-                        return dict(preprocessor(dummy_input, return_tensors=framework, sampling_rate=preprocessor.sampling_rate))
-
-                onnx_config_cls = Wav2Vec2OnnxConfig
-            else:
+            if self.onnx_config is None:
                 onnx_config_cls = FeaturesManager._SUPPORTED_MODEL_TYPE[model_type][self.feature]
-            onnx_config = onnx_config_cls(self.model.config)
+                onnx_config = onnx_config_cls(self.model.config)
+            else:
+                onnx_config = self.onnx_config
             use_external_data_format = (
                 onnx_config.use_external_data_format(self.model.num_parameters()) or self.ov_config.save_onnx_model
             )

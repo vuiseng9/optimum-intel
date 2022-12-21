@@ -44,6 +44,7 @@ from transformers.utils.versions import require_version
 from nncf.common.utils.os import safe_open
 from pathlib import Path
 import jstyleson as json
+from wav2vec2_onnx_config import Wav2Vec2OnnxConfig
 
 logger = logging.getLogger(__name__)
 
@@ -384,9 +385,6 @@ def main():
     else:
         ov_config = OVConfig()
     ov_config.log_dir = training_args.output_dir
-    ov_config.ignored_scopes = [
-        "{re}.*feature_extractor.*"
-    ]
     from nncf.common.logging.logger import set_log_level
     set_log_level(logging.INFO)
 
@@ -401,6 +399,7 @@ def main():
         eval_dataset=raw_datasets["eval"] if training_args.do_eval else None,
         compute_metrics=compute_metrics,
         tokenizer=feature_extractor,
+        onnx_config=Wav2Vec2OnnxConfig(model.config)
     )
 
     # Training
