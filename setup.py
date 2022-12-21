@@ -30,8 +30,8 @@ QUALITY_REQUIRES = [
 
 EXTRAS_REQUIRE = {
     "neural-compressor": "neural-compressor>=1.13.0",
-    "openvino": ["openvino-dev==2022.3.0.dev20221125"], # TODO: temporarily using pre-release version, to revert
-    "nncf": ["nncf @ git+https://github.com/openvinotoolkit/nncf"], #TODO: temporarily using pre-release version, to revert
+    "openvino": ["openvino-dev==2022.3.0"],
+    "nncf": ["nncf @ git+https://github.com/openvinotoolkit/nncf"], #TODO: temporarily using develop branch in git repo, to use next official NNCF version, 2.4
     "ipex": ["intel_extension_for_pytorch"],
     "quality": QUALITY_REQUIRES,
     "tests": TESTS_REQUIRE,
