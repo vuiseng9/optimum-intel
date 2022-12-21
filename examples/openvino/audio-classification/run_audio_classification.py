@@ -395,8 +395,6 @@ def main():
     else:
         ov_config = OVConfig()
     ov_config.log_dir = training_args.output_dir
-    from nncf.common.logging.logger import set_log_level
-    set_log_level(logging.INFO)
 
     # Initialize our trainer
     trainer = OVTrainerForAudioClassification(

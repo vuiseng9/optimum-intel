@@ -141,8 +141,6 @@ class OVTrainer(Trainer):
                 model_inputs.pop(label_name)
             self.ov_config.add_input_info(model_inputs)
             nncf_config = NNCFConfig.from_dict(self.ov_config.__dict__)
-            import pprint  # TODO(yujie): delete this
-            pprint.pprint(nncf_config)
             nncf_config.register_extra_structs(
                 [
                     QuantizationRangeInitArgs(OVDataLoader(train_dataloader)),
