@@ -14,36 +14,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from dataclasses import dataclass, field
 import logging
 import os
-import sys
-import warnings
-from dataclasses import dataclass, field
+from pathlib import Path
 from random import randint
+import sys
 from typing import Optional
+import warnings
 
-from optimum.intel.openvino import OVConfig, OVTrainingArguments, OVTrainer
+import jstyleson as json
+from nncf.common.utils.os import safe_open
+import numpy as np
+from optimum.intel.openvino import OVConfig, OVTrainer, OVTrainingArguments
+import torch
+import torch.nn.functional as F
 
 import datasets
-import numpy as np
 from datasets import DatasetDict, load_dataset
-
 import evaluate
 import transformers
-from transformers import (
-    AutoConfig,
-    AutoFeatureExtractor,
-    AutoModelForAudioClassification,
-    HfArgumentParser,
-    set_seed,
-)
+from transformers import AutoConfig, AutoFeatureExtractor, AutoModelForAudioClassification, HfArgumentParser, set_seed
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
 
-from nncf.common.utils.os import safe_open
-from pathlib import Path
-import jstyleson as json
 from wav2vec2_onnx_config import Wav2Vec2OnnxConfig
 
 logger = logging.getLogger(__name__)
@@ -187,6 +182,21 @@ class ModelArguments:
                 "should not be used in combination with `--freeze_feature_encoder`."
                 "Only make use of `--freeze_feature_encoder`."
             )
+
+
+class OVTrainerForAudioClassification(OVTrainer):
+
+    def compute_distillation_loss(self, inputs, student_outputs):
+        # TODO(yujie): rename function argument
+        with torch.no_grad():
+            teacher_outputs = self.teacher(**inputs).logits
+        teacher_logits = teacher_outputs
+        student_logits = student_outputs.logits
+        return F.kl_div(
+            input=F.log_softmax(student_logits / self.temperature, dim=-1),
+            target=F.softmax(teacher_logits / self.temperature, dim=-1),
+            reduction="batchmean"
+        ) * (self.temperature ** 2)
 
 
 def main():
@@ -389,7 +399,7 @@ def main():
     set_log_level(logging.INFO)
 
     # Initialize our trainer
-    trainer = OVTrainer(
+    trainer = OVTrainerForAudioClassification(
         model=model,
         teacher_model=teacher_model,
         ov_config=ov_config,
