@@ -547,7 +547,7 @@ class OVTrainer(Trainer):
             distillation_loss = self.compute_distillation_loss(inputs, outputs)
             loss = ((1 - self.distillation_weight) * task_loss) + (self.distillation_weight * distillation_loss)
 
-            self.metrics["task_loss"] = task_loss.item()
+            self.metrics["task_loss"] = task_loss.detach().mean().item() # task_loss may not be a one-item tensor
             self.metrics["distillation_loss"] = distillation_loss.item()
 
         if self.compression_controller is not None:
