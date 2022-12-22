@@ -26,7 +26,6 @@ from transformers import (
     AutoModelForQuestionAnswering,
     AutoModelForSequenceClassification,
     AutoModelForTokenClassification,
-    AutoModelForAudioClassification,
 )
 from transformers.file_utils import add_start_docstrings, add_start_docstrings_to_model_forward
 from transformers.modeling_outputs import (
@@ -91,12 +90,6 @@ IMAGE_INPUTS_DOCSTRING = r"""
             Pixel values can be obtained from encoded images using [`AutoFeatureExtractor`](https://huggingface.co/docs/transformers/autoclass_tutorial#autofeatureextractor).
 """
 
-AUDIO_INPUTS_DOCSTRING = r"""
-    Args:
-        input_values (`torch.Tensor`):
-            Input values corresponding to the audio in the current batch.
-            Input values can be obtained from audios using [`AutoFeatureExtractor`](https://huggingface.co/docs/transformers/autoclass_tutorial#autofeatureextractor).
-"""
 
 class OVModel(OVBaseModel):
 
@@ -584,58 +577,3 @@ class OVModelForImageClassification(OVModel):
         logits = torch.from_numpy(outputs["logits"]).to(self.device)
 
         return ImageClassifierOutput(logits=logits)
-
-
-AUDIO_CLASSIFICATION_EXAMPLE = r"""
-    Example of audio classification using `transformers.pipelines`:
-    ```python
-    >>> from transformers import {processor_class}, pipeline
-    >>> from optimum.intel.openvino import {model_class}
-
-    >>> preprocessor = {processor_class}.from_pretrained("{checkpoint}")
-    >>> model = {model_class}.from_pretrained("{checkpoint}", from_transformers=True)
-    >>> pipe = pipeline("audio-classification", model=model, feature_extractor=preprocessor)
-    >>> url = "http://images.cocodataset.org/val2017/000000039769.jpg"
-    >>> outputs = pipe(url)
-    ```
-"""
-
-
-@add_start_docstrings(
-    """
-    OpenVINO Model with a ImageClassifierOutput for image classification tasks.
-    """,
-    MODEL_START_DOCSTRING,
-)
-class OVModelForAudioClassification(OVModel):
-
-    export_feature = "audio-classification"
-    auto_model_class = AutoModelForAudioClassification
-
-    def __init__(self, model=None, config=None, **kwargs):
-        super().__init__(model, config, **kwargs)
-
-    @add_start_docstrings_to_model_forward(
-        AUDIO_INPUTS_DOCSTRING.format("batch_size, sequence")
-        + AUDIO_CLASSIFICATION_EXAMPLE.format(
-            processor_class=_FEATURE_EXTRACTOR_FOR_DOC,
-            model_class="OVModelForTokenClassification",
-            checkpoint="anton-l/wav2vec2-base-ft-keyword-spotting",
-        )
-    )
-    def forward(
-        self,
-        input_values: torch.Tensor,
-        **kwargs,
-    ):
-        self.compile()
-
-        inputs = {
-            "input_values": input_values,
-        }
-
-        # Run inference
-        outputs = self.request.infer(inputs)
-        outputs = {key.get_any_name(): value for key, value in outputs.items()}
-        logits = torch.from_numpy(outputs["logits"]).to(self.device)
-        return SequenceClassifierOutput(logits=logits)

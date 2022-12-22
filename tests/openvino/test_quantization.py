@@ -21,14 +21,7 @@ from pathlib import Path
 
 import numpy as np
 from datasets import load_dataset
-from transformers import (
-    AutoModel,
-    AutoModelForSequenceClassification,
-    AutoModelForQuestionAnswering,
-    AutoTokenizer,
-    TrainingArguments,
-    default_data_collator,
-)
+from transformers import AutoModelForSequenceClassification, AutoTokenizer, TrainingArguments, default_data_collator
 from transformers.utils import WEIGHTS_NAME
 
 import evaluate
@@ -117,7 +110,8 @@ class OVTrainerTest(unittest.TestCase):
         train_dataset = dataset["train"].select(range(16))
         eval_dataset = dataset["validation"].select(range(16))
         metric = evaluate.load("glue", "sst2")
-        compute_metrics = lambda p: metric.compute(
+
+        def compute_metrics(p): return metric.compute(
             predictions=np.argmax(p.predictions, axis=1), references=p.label_ids
         )
 
@@ -179,11 +173,13 @@ class OVTrainerTest(unittest.TestCase):
             teacher_model=teacher_model,
             ov_config=ov_config,
             feature="sequence-classification",
-            args=OVTrainingArguments(output_dir,
-                                     num_train_epochs=3.0,
-                                     do_train=True,
-                                     do_eval=True,
-                                     **training_args),
+            args=OVTrainingArguments(
+                output_dir,
+                num_train_epochs=3.0,
+                do_train=True,
+                do_eval=True,
+                **training_args
+            ),
             train_dataset=train_dataset,
             eval_dataset=eval_dataset,
             compute_metrics=compute_metrics,

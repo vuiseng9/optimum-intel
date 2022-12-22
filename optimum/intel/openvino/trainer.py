@@ -128,7 +128,7 @@ class OVTrainer(Trainer):
             self.teacher = teacher_model.to(args.device)
             self.teacher.eval()
             self.distillation_weight = args.distillation_weight
-            self.temperature = args.distillation_temperature
+            self.temperature = args.distillation_temperature 
         self.compression_controller = None
         self.loss_counter = 0
         self.metrics = defaultdict(float)
@@ -349,7 +349,7 @@ class OVTrainer(Trainer):
         for epoch in range(epochs_trained, num_train_epochs):
             if self.compression_controller is not None:
                 self.compression_controller.scheduler.epoch_step()
-                # print(self.compression_controller.statistics().to_str())
+                print(self.compression_controller.statistics().to_str())
             if isinstance(train_dataloader, DataLoader) and isinstance(train_dataloader.sampler, DistributedSampler):
                 train_dataloader.sampler.set_epoch(epoch)
             elif hasattr(train_dataloader, "dataset") and isinstance(train_dataloader.dataset, IterableDatasetShard):
@@ -389,7 +389,7 @@ class OVTrainer(Trainer):
 
                 if step % args.gradient_accumulation_steps == 0:
                     self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
-                    # TODO: this was the original adaptation for nncf scheduler stepping.
+                    # TODO: this was the original adaptation for nncf scheduler stepping. 
                     # To review if this is the right place or at line 439
                     # if self.compression_controller is not None:
                     #     # Must be called at the beginning of each training step to prepare the compression method
@@ -537,6 +537,7 @@ class OVTrainer(Trainer):
         self.loss_counter += 1
         if self.teacher is None:
             retval = super().compute_loss(model, inputs, return_outputs)
+
             if return_outputs is True:
                 loss, outputs = retval
             else:

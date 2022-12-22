@@ -14,17 +14,13 @@
 
 import gc
 import unittest
-from unittest.mock import patch
 
 import torch
-from torchaudio.sox_effects import apply_effects_file
 from datasets import load_dataset
 from PIL import Image
-import transformers
 from transformers import (
     AutoFeatureExtractor,
     AutoModel,
-    AutoModelForAudioClassification,
     AutoModelForCausalLM,
     AutoModelForImageClassification,
     AutoModelForMaskedLM,
@@ -37,15 +33,10 @@ from transformers import (
     pipeline,
     set_seed,
 )
-from transformers.onnx.features import FeaturesManager, supported_features_mapping
-from transformers.onnx import OnnxConfig
-import importlib.util
-from pathlib import Path
 
 import requests
 from evaluate import evaluator
 from optimum.intel.openvino.modeling import (
-    OVModelForAudioClassification,
     OVModelForCausalLM,
     OVModelForFeatureExtraction,
     OVModelForImageClassification,
@@ -70,8 +61,6 @@ MODEL_NAMES = {
     "t5": "hf-internal-testing/tiny-random-t5",
     "vit": "hf-internal-testing/tiny-random-vit",
     "gpt2": "hf-internal-testing/tiny-random-gpt2",
-    # "wav2vec2": "hf-internal-testing/tiny-random-wav2vec2",
-    "wav2vec2": "anton-l/wav2vec2-base-ft-keyword-spotting"
 }
 
 SEED = 42
@@ -461,77 +450,3 @@ class OVModelForSeq2SeqLMIntegrationTest(unittest.TestCase):
         model_without_pkv = OVModelForSeq2SeqLM.from_pretrained(model_id, from_transformers=True, use_cache=False)
         outputs_model_without_pkv = model_without_pkv.generate(**tokens)
         self.assertTrue(torch.equal(outputs_model_with_pkv, outputs_model_without_pkv))
-
-
-# TODO(yujie): not finished
-class OVModelForAudioClassificationIntegrationTest(unittest.TestCase):
-    SUPPORTED_ARCHITECTURES = ("wav2vec2",)
-
-    def apply_patch(self):  # TODO(yujie): use fixture
-        spec = importlib.util.spec_from_file_location(
-            "wav2vec2_onnx_config",
-            Path(__file__).parents[2] / 'examples/openvino/audio-classification/wav2vec2_onnx_config.py'
-        )
-        wav2vec2_onnx_config = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(wav2vec2_onnx_config)
-        Wav2Vec2OnnxConfig = wav2vec2_onnx_config.Wav2Vec2OnnxConfig
-        # Haven't figure out the way to patch. Using setattr temporarily.
-        transformers.models.wav2vec2.Wav2Vec2OnnxConfig = Wav2Vec2OnnxConfig
-        FeaturesManager._TASKS_TO_AUTOMODELS['audio-classification'] = AutoModelForAudioClassification
-        FeaturesManager._SUPPORTED_MODEL_TYPE['wav2vec2'] = supported_features_mapping(
-            "default",
-            "audio-classification",
-            onnx_config_cls='models.wav2vec2.Wav2Vec2OnnxConfig',
-        )
-        OnnxConfig._tasks_to_common_outputs["audio-classification"] = \
-            {"input_values": {0: "batch", 1: "sequence"}}
-
-    def get_dataset(self):  # TODO(yujie): use fixture
-        effects = [["channels", "1"], ["rate", "16000"], ["gain", "-3.0"]]
-
-        def map_to_array(example):
-            speech, _ = apply_effects_file(example["file"], effects)
-            example["speech"] = speech.squeeze(0).numpy()
-            print(example.shape)
-            return example
-
-        dataset = load_dataset("anton-l/superb_demo", "ks", split="test")
-        dataset = dataset.map(map_to_array)
-        return dataset
-
-    @parameterized.expand(SUPPORTED_ARCHITECTURES)
-    @unittest.expectedFailure
-    def test_compare_to_transformers(self, model_arch):
-        self.apply_patch()
-        model_id = MODEL_NAMES[model_arch]
-        set_seed(SEED)
-        ov_model = OVModelForAudioClassification.from_pretrained(model_id, from_transformers=True)
-        self.assertIsInstance(ov_model.config, PretrainedConfig)
-        transformers_model = AutoModelForAudioClassification.from_pretrained(model_id)
-        preprocessor = AutoFeatureExtractor.from_pretrained(model_id)
-        dataset = self.get_dataset()
-        inputs = preprocessor(dataset[:4]["speech"], sampling_rate=16000, padding=True, return_tensors="pt")
-        print(inputs['input_values'].shape)
-        ov_outputs = ov_model(**inputs)
-        self.assertTrue("logits" in ov_outputs)
-        self.assertIsInstance(ov_outputs.logits, torch.Tensor)
-        with torch.no_grad():
-            transformers_outputs = transformers_model(**inputs)
-        self.assertTrue(torch.allclose(ov_outputs.logits, transformers_outputs.logits, atol=1e-4))
-        gc.collect()
-
-    @parameterized.expand(SUPPORTED_ARCHITECTURES)
-    @unittest.expectedFailure
-    def test_pipeline(self, model_arch):
-        self.apply_patch()
-        model_id = MODEL_NAMES[model_arch]
-        model = OVModelForAudioClassification.from_pretrained(model_id, from_transformers=True)
-        preprocessor = AutoFeatureExtractor.from_pretrained(model_id)
-        # preprocessor.
-        pipe = pipeline("audio-classification", model=model, feature_extractor=preprocessor)
-        dataset = self.get_dataset()
-        outputs = pipe(dataset[:4]["speech"])
-        self.assertEqual(pipe.device, model.device)
-        self.assertGreaterEqual(outputs[0]["score"], 0.0)
-        self.assertTrue(isinstance(outputs[0]["label"], str))
-        gc.collect()
