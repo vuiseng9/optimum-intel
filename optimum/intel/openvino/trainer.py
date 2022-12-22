@@ -522,9 +522,11 @@ class OVTrainer(Trainer):
 
         return TrainOutput(self.state.global_step, train_loss, metrics)
 
-    def compute_distillation_loss(self, inputs, student_logits):
+    def compute_distillation_loss(self, inputs, student_outputs):
         with torch.no_grad():
-            teacher_logits = self.teacher(**inputs)
+            teacher_outputs = self.teacher(**inputs)
+        teacher_logits = teacher_outputs.logits
+        student_logits = student_outputs.logits
         return F.kl_div(
             input=F.log_softmax(student_logits / self.temperature, dim=-1),
             target=F.softmax(teacher_logits / self.temperature, dim=-1),
@@ -535,7 +537,6 @@ class OVTrainer(Trainer):
         self.loss_counter += 1
         if self.teacher is None:
             retval = super().compute_loss(model, inputs, return_outputs)
-
             if return_outputs is True:
                 loss, outputs = retval
             else:
