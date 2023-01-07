@@ -21,14 +21,13 @@ import os
 import random
 import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
 import datasets
 import numpy as np
-from datasets import load_dataset
-
-import evaluate
 import transformers
+from datasets import load_dataset
 from transformers import (
     AutoConfig,
     AutoModelForSequenceClassification,
@@ -46,9 +45,14 @@ from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
 
+import evaluate
+import jstyleson as json
+from nncf.common.utils.os import safe_open
+from optimum.intel.openvino import OVConfig, OVTrainer, OVTrainingArguments
+
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
-check_min_version("4.26.0.dev0")
+check_min_version("4.22.0")
 
 require_version("datasets>=1.8.0", "To fix: pip install -r examples/pytorch/text-classification/requirements.txt")
 
@@ -208,7 +212,7 @@ def main():
     # or by passing the --help flag to this script.
     # We now keep distinct sets of args, for a cleaner separation of concerns.
 
-    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, TrainingArguments))
+    parser = HfArgumentParser((ModelArguments, DataTrainingArguments, OVTrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
         # let's parse it to get our arguments.
@@ -375,6 +379,13 @@ def main():
         use_auth_token=True if model_args.use_auth_token else None,
         ignore_mismatched_sizes=model_args.ignore_mismatched_sizes,
     )
+    teacher_model = None
+    if training_args.teacher_model_or_path is not None:
+        teacher_model = AutoModelForSequenceClassification.from_pretrained(
+            training_args.teacher_model_or_path,
+            from_tf=bool(".ckpt" in training_args.teacher_model_or_path),
+            cache_dir=model_args.cache_dir,
+        )
 
     # Preprocessing the raw_datasets
     if data_args.task_name is not None:
@@ -509,9 +520,21 @@ def main():
     else:
         data_collator = None
 
+    if training_args.nncf_compression_config is not None:
+        file_path = Path(training_args.nncf_compression_config).resolve()
+        with safe_open(file_path) as f:
+            compression = json.load(f)
+        ov_config = OVConfig(compression=compression)
+    else:
+        ov_config = OVConfig()
+    ov_config.log_dir = training_args.output_dir
+
     # Initialize our Trainer
-    trainer = Trainer(
+    trainer = OVTrainer(
         model=model,
+        teacher_model=teacher_model,
+        ov_config=ov_config,
+        feature="text-classification",
         args=training_args,
         train_dataset=train_dataset if training_args.do_train else None,
         eval_dataset=eval_dataset if training_args.do_eval else None,
