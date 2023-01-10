@@ -351,6 +351,11 @@ def main():
             label_list.sort()  # Let's sort it for determinism
             num_labels = len(label_list)
 
+    if is_regression and training_args.teacher_model_or_path is not None:
+        raise NotImplementedError(
+            "Built-in knowledge distillation of `OVTrainer` only supports single label classification task now."
+        )
+
     # Load pretrained model and tokenizer
     #
     # In distributed training, the .from_pretrained methods guarantee that only one local process can concurrently
