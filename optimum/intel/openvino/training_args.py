@@ -19,6 +19,7 @@ class OVTrainingArguments(TrainingArguments):
         default=0.5, metadata={"help": "weightage of distillation loss, value between 0.0 to 1.0"}
     )
     distillation_temperature: float = field(default=2.0, metadata={"help": "temperature of distillation."})
+    cekd: bool = field(default=False, metadata={"help": "use cross entropy instead of KL for distillation"})
 
     def __post_init__(self):
         super().__post_init__()

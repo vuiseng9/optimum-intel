@@ -161,6 +161,8 @@ class OVTrainer(Trainer):
             nncf_config["log_dir"] = args.output_dir
             self.compression_controller, self.model = create_compressed_model(self.model, nncf_config)
             self.model_wrapped = self.model
+        else:
+            self.model_wrapped = self.model
 
     def _set_signature_columns_if_needed(self):
         if self._signature_columns is None:
@@ -400,6 +402,7 @@ class OVTrainer(Trainer):
 
                 if step % args.gradient_accumulation_steps == 0:
                     self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
+                    self.compression_metrics = None
                     if self.teacher is not None or self.compression_controller is not None:
                         self.compression_metrics = defaultdict(float)
                     if self.compression_controller is not None:
@@ -582,10 +585,11 @@ class OVTrainer(Trainer):
             logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
             logs["learning_rate"] = self._get_learning_rate()
 
-            if self.compression_controller is not None:
+            if self.compression_metrics is not None:
                 for key, value in self.compression_metrics.items():
                     logs[key] = value
 
+            if self.compression_controller is not None:
                 compression_stats = self.compression_controller.statistics()
                 for key, value in prepare_for_tensorboard(compression_stats).items():
                     logs["compression/{0}".format(key)] = value

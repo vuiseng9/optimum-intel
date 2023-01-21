@@ -26,6 +26,7 @@ from optimum.intel.openvino.trainer import OVTrainer
 class QuestionAnsweringOVTrainer(OVTrainer):
     def __init__(self, *args, eval_examples=None, post_process_function=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.cekd = kwargs['args'].cekd
         self.eval_examples = eval_examples
         self.post_process_function = post_process_function
         self.criterion = nn.CrossEntropyLoss()
@@ -103,16 +104,26 @@ class QuestionAnsweringOVTrainer(OVTrainer):
         with torch.no_grad():
             teacher_outputs = self.teacher(**inputs)
 
-        distilliation_loss_start = F.kl_div(
-            input=F.log_softmax(student_outputs.start_logits / self.temperature, dim=-1),
-            target=F.softmax(teacher_outputs.start_logits / self.temperature, dim=-1),
-            reduction="batchmean",
-        ) * (self.temperature**2)
-        distilliation_loss_end = F.kl_div(
-            input=F.log_softmax(student_outputs.end_logits / self.temperature, dim=-1),
-            target=F.softmax(teacher_outputs.end_logits / self.temperature, dim=-1),
-            reduction="batchmean",
-        ) * (self.temperature**2)
+        if self.cekd:
+            distilliation_loss_start = F.cross_entropy(
+                input=(student_outputs.start_logits / self.temperature), # CE has an implicit log_softmax on input
+                target=F.softmax(teacher_outputs.start_logits / self.temperature, dim=-1), # dC/dTarget is not used?
+            ) * self.temperature
+            distilliation_loss_end = F.cross_entropy(
+                input=(student_outputs.end_logits / self.temperature),
+                target=F.softmax(teacher_outputs.end_logits / self.temperature, dim=-1),
+            ) * self.temperature
+        else:
+            distilliation_loss_start = F.kl_div(
+                input=F.log_softmax(student_outputs.start_logits / self.temperature, dim=-1),
+                target=F.softmax(teacher_outputs.start_logits / self.temperature, dim=-1),
+                reduction="batchmean",
+            ) * (self.temperature**2)
+            distilliation_loss_end = F.kl_div(
+                input=F.log_softmax(student_outputs.end_logits / self.temperature, dim=-1),
+                target=F.softmax(teacher_outputs.end_logits / self.temperature, dim=-1),
+                reduction="batchmean",
+            ) * (self.temperature**2)
         return (distilliation_loss_start + distilliation_loss_end) / 2.0
 
     def compute_loss(self, model, inputs, return_outputs=False):

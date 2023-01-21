@@ -643,7 +643,7 @@ def main():
             compression = json.load(f)
         ov_config = OVConfig(compression=compression)
     else:
-        ov_config = OVConfig()
+        ov_config = None
 
     # Initialize our Trainer
     trainer = QuestionAnsweringOVTrainer(
