@@ -3,17 +3,14 @@
         "algorithm": "movement_sparsity",
         "params": {
             "warmup_start_epoch": 3,
-            "warmup_end_epoch": 6,
-            "importance_regularization_factor": 0.05,
+            "warmup_end_epoch": 10,
+            "importance_regularization_factor": 0.020,
             "enable_structured_masking": true
         },
         "sparse_structure_by_scopes": [
             {
                 "mode": "block",
-                "sparse_factors": [
-                    16,
-                    16
-                ],
+                "sparse_factors": [16, 16],
                 "target_scopes": "{re}.*MobileBertAttention.*"
             },
             {
