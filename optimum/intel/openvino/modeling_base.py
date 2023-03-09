@@ -35,6 +35,9 @@ from optimum.modeling_base import OptimizedModel
 from ..utils.import_utils import is_transformers_version
 from .utils import ONNX_WEIGHTS_NAME, OV_XML_FILE_NAME
 
+from openvino.runtime import opset9 as opset
+from openvino.runtime import Model as ovModel
+import numpy as np
 
 if is_transformers_version("<", "4.25.0"):
     from transformers.generation_utils import GenerationMixin
@@ -79,6 +82,9 @@ class OVBaseModel(OptimizedModel):
         self._device = kwargs.get("device", "CPU").upper()
         self.is_dynamic = kwargs.get("dynamic_shapes", True)
         self.ov_config = {"PERFORMANCE_HINT": "LATENCY"}
+        if 'OV_INFER_BF16' in os.environ:
+            if os.environ['OV_INFER_BF16'] == "bf16":
+                self.ov_config['INFERENCE_PRECISION_HINT']="bf16"
         self.preprocessors = kwargs.get("preprocessors", [])
         enable_compilation = kwargs.get("compile", True)
         if "GPU" in self._device and self.is_dynamic:
@@ -305,8 +311,43 @@ class OVBaseModel(OptimizedModel):
             if self._device == "GPU":
                 cache_dir = Path(self.model_save_dir).joinpath("model_cache")
                 ov_config["CACHE_DIR"] = str(cache_dir)
+            if 'OV_DUMP_N_OFM' in os.environ:
+                self._add_ofm_outputs()
             compiled_model = core.compile_model(self.model, self._device, ov_config)
             self.request = compiled_model.create_infer_request()
+
+    def _add_ofm_outputs(self):
+
+        N_OFM_TO_OUTPUT =  int(os.environ['OV_DUMP_N_OFM'])
+        cnt=0
+        ofm_result_list = []
+
+        def is_dynamic_port(port):
+            return len(list(filter(lambda x: x.is_dynamic, list(port.get_partial_shape())))) > 0
+
+        def port_flatten_size(port):
+            return np.prod(list(op_out_port.get_shape()))
+        
+        def add_ofm(port, name):
+            ofm_result_list.append(
+                opset.result(port, name=name)
+            )
+
+        for i, op in enumerate(self.model.get_ordered_ops()):
+            if op.get_type_name() not in ['Constant', 'Parameter', 'Unsqueeze']:
+                if cnt < N_OFM_TO_OUTPUT:
+                    for outid in range(len(op.outputs())):
+                        op_out_port = op.output(outid)
+                        if len(op_out_port.names) == 0:
+                            continue
+                        elif is_dynamic_port(op_out_port):
+                            add_ofm(op_out_port, name=f'{op.get_friendly_name()}_ofm{outid}')
+                            cnt+=1
+                        elif port_flatten_size(op_out_port) < 3e5:
+                            add_ofm(op_out_port, name=f'{op.get_friendly_name()}_ofm{outid}')
+                            cnt+=1
+
+        self.model = ovModel(self.model.get_results() + ofm_result_list, self.model.get_parameters())
 
     def _reshape(
         self,

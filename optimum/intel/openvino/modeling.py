@@ -12,6 +12,7 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 
+import os
 import logging
 from typing import Any, Dict, Optional, Union
 
@@ -248,6 +249,11 @@ class OVModelForQuestionAnswering(OVModel):
         end_logits = (
             torch.from_numpy(outputs["end_logits"]).to(self.device) if not np_inputs else outputs["end_logits"]
         )
+        if "OV_DUMP_N_OFM" in os.environ:
+            if "OV_DUMP_PATH" not in os.environ:
+                raise ValueError("pls set env OV_DUMP_PATH")
+            dump_path = os.environ["OV_DUMP_PATH"] + "_" + os.environ.get("OV_INFER_BF16", "f32") + ".pth"
+            torch.save(outputs, dump_path)
         return QuestionAnsweringModelOutput(start_logits=start_logits, end_logits=end_logits)
 
 
