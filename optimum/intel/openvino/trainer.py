@@ -721,6 +721,7 @@ class OVTrainer(Trainer):
                     logger.warning(
                         f"Error encountered during IR pruning: {err}. {onnx_path} is dumped for debug. Run continues."
                     )
+                    return
             else:
                 if self._get_compression_controller_by_cls(QuantizationController) is not None:
                     compress_quantize_weights_transformation(ov_model)
@@ -748,10 +749,16 @@ class OVTrainer(Trainer):
         )
 
     def _reshape_ir(self, ov_model: openvino.runtime.Model, static_shape: bool) -> openvino.runtime.Model:
+        def get_sample_size_by_keyword(keyword):
+            for input_info in self.ov_config.input_info:
+                if keyword == input_info['keyword']:
+                    return [1] + self.ov_config.input_info[0]['sample_size'][1:] # Always batch size of 1 for OVIR
+            return None
+
         new_input_cfg = dict()
         for input_ in ov_model.inputs:
             if static_shape is True:
-                new_input_cfg[input_.any_name] = PartialShape(list(range(1, len(input_.partial_shape) + 1)))
+                new_input_cfg[input_.any_name] = PartialShape(get_sample_size_by_keyword(input_.any_name))
             else:
                 new_input_cfg[input_.any_name] = PartialShape([-1] * len(input_.partial_shape))
         ov_model.reshape(new_input_cfg)
