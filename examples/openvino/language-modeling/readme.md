@@ -35,7 +35,7 @@ python run_clm.py \
     --nncf_compression_config configs/dummy_fp32.json
 ```
 
-### Export IR (For exporting )sparse quantized opt-1.3b
+### Export IR (sparse quantized opt-1.3b)
 ```bash
 python  run_clm.py \
     --model_name_or_path facebook/opt-1.3b \
