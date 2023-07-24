@@ -35,6 +35,20 @@ python run_clm.py \
     --nncf_compression_config configs/dummy_fp32.json
 ```
 
+### Export IR (For exporting )sparse quantized opt-1.3b
+```bash
+python  run_clm.py \
+    --model_name_or_path facebook/opt-1.3b \
+    --dataset_name wikitext \
+    --dataset_config_name wikitext-2-raw-v1 \
+    --do_eval --per_device_eval_batch_size 1 \
+    --max_eval_samples 3 \
+    --do_train --per_device_train_batch_size 8 \
+    --max_steps 1 \
+    --output_dir /tmp/vscode-dev/rebased-sparse90pc-opt-1.3b \
+    --overwrite_output_dir \
+    --nncf_compression_config configs/opt-quantize.json
+```
 ### Toy Benchmark
 ```bash
 python benchmark-text-generation.py \

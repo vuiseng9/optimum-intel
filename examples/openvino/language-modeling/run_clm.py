@@ -613,13 +613,13 @@ def main():
         ov_config = OVConfig(save_onnx_model=model_args.ov_save_onnx)
     ov_config.log_dir = training_args.output_dir
 
-    if False:
+    if True:
         def calc_sparsity(t):
             return 1 - t.nonzero().shape[0]/t.numel()
         
         if config.model_type in ['opt']:
             sparsification_layerlist = ['k_proj', 'v_proj', 'q_proj', 'out_proj', 'fc1', 'fc2']
-            SPARSITY_TARGET=0.1 # between 0 to 1
+            SPARSITY_TARGET=0.9 # between 0 to 1
         else:
             pass
         

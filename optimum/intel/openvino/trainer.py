@@ -744,7 +744,8 @@ class OVTrainer(Trainer):
 
             opset = min(onnx_config.DEFAULT_ONNX_OPSET, MAX_ONNX_OPSET)
             opset = opset if not self.ov_config.save_onnx_model else max(opset, MIN_ONNX_QDQ_OPSET)
-            _onnx_export_nncf_model(self.model, onnx_config, f, opset)
+            stripped_model = self.compression_controller.strip(do_copy=False)
+            _onnx_export_nncf_model(stripped_model, onnx_config, f, opset)
             ov_model = core.read_model(f) if save_as_external_data else core.read_model(f.getvalue(), b"")
 
             # Prune IR if structured pruning is conducted on the model
