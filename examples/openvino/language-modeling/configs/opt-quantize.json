@@ -20,21 +20,14 @@
     },
     "overflow_fix": "disable",
     // "preset": "mixed",
-    "scope_overrides": {
-      "activations": {
-        // "{re}.*bmm_0": {
-        //   "mode": "symmetric"
-        // }
-        "activations":
-        {
-            "mode": "symmetric"
-        },
-        "weights":
-        {
-            "mode": "symmetric",
-            // "signed": true,
-            // "per_channel": false
-        }
-      }
+    "activations":
+    {
+        "mode": "symmetric"
+    },
+    "weights":
+    {
+        "mode": "symmetric",
+        // "signed": true,
+        // "per_channel": false
     }
   }
