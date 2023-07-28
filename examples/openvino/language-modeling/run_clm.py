@@ -171,12 +171,35 @@ class ModelArguments:
         },
     )
 
+    linear_sparsity: float = field(
+        default=None,
+        metadata={
+            "help": (
+                "induce sparsity to projection linear layers of llm"
+            )
+        },
+    )
+
+    force_save_only: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "bypass training in trainer loop to save model right after model transformation"
+            )
+        },
+    )
+
     def __post_init__(self):
         if self.config_overrides is not None and (self.config_name is not None or self.model_name_or_path is not None):
             raise ValueError(
                 "--config_overrides can't be used in combination with --config_name or --model_name_or_path"
             )
 
+        if self.linear_sparsity is not None: 
+            if self.linear_sparsity < 0.01 or self.linear_sparsity > 0.99:
+                raise ValueError(
+                    "--linear_sparsity must be within (0.01, 0.99)"
+                )
 
 @dataclass
 class DataTrainingArguments:
@@ -436,7 +459,10 @@ def main():
     if model_args.tokenizer_name:
         tokenizer = AutoTokenizer.from_pretrained(model_args.tokenizer_name, **tokenizer_kwargs)
     elif model_args.model_name_or_path:
-        tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path, **tokenizer_kwargs)
+        if 'llama-' in model_args.model_name_or_path:
+            tokenizer = transformers.models.llama.LlamaTokenizer.from_pretrained(model_args.model_name_or_path, **tokenizer_kwargs)
+        else:
+            tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path, **tokenizer_kwargs)
     else:
         raise ValueError(
             "You are instantiating a new tokenizer from scratch. This is not supported by this script."
@@ -613,27 +639,41 @@ def main():
         ov_config = OVConfig(save_onnx_model=model_args.ov_save_onnx)
     ov_config.log_dir = training_args.output_dir
 
-    if True:
+    if model_args.linear_sparsity is not None:
         def calc_sparsity(t):
             return 1 - t.nonzero().shape[0]/t.numel()
         
+        def calc_threshold(tensor: torch.Tensor, sparsity):
+            k = int(tensor.numel() * sparsity) + 1
+            r = torch.kthvalue(tensor.view(-1), k)
+            return r.values
+        
         if config.model_type in ['opt']:
             sparsification_layerlist = ['k_proj', 'v_proj', 'q_proj', 'out_proj', 'fc1', 'fc2']
-            SPARSITY_TARGET=0.9 # between 0 to 1
+        elif config.model_type in ['llama']:
+            sparsification_layerlist = ['k_proj', 'v_proj', 'q_proj', 'o_proj', 'gate_proj', 'down_proj', 'up_proj']
         else:
-            pass
+            raise NotImplementedError("This model family is not supported for --linear_sparsity")
         
         with torch.no_grad():
             for modname, mod in model.named_modules():
                 if isinstance(mod, torch.nn.Linear) and any(map(lambda x: x in modname, sparsification_layerlist)):
                     orig_sparsity = calc_sparsity(mod.weight)
 
-                    pruning_threshold = mod.weight.abs().quantile(SPARSITY_TARGET)
-                    mask = (mod.weight.abs() > pruning_threshold)*1.0
-                    mod.weight *= mask
+                    pruning_threshold = calc_threshold(mod.weight.abs(), sparsity=model_args.linear_sparsity)
+                    print(f'\n{modname} weight threshold: ', pruning_threshold)
+                    mask = (mod.weight.abs() > pruning_threshold) * 1.0
+                    mod.weight *= mask.type_as(mod.weight)
                     
+                    if False:
+                        if mod.bias is not None:
+                            pruning_threshold_bias = calc_threshold(mod.bias.abs(), sparsity=model_args.linear_sparsity)
+                            print(f'{modname} bias threshold: ', pruning_threshold_bias)
+                            mask = (mod.bias.abs() > pruning_threshold_bias) * 1.0
+                            mod.bias *= mask.type_as(mod.bias)
+
                     new_sparsity = calc_sparsity(mod.weight)
-                    print(f"Sparsity {orig_sparsity:4.2f} -> {new_sparsity:4.2f} | {modname}")
+                    print(f"Sparsity {orig_sparsity:4.2f} -> {new_sparsity:4.2f} | {modname}", flush=True)
 
     # Initialize our Trainer
     trainer = OVTrainer(
@@ -652,6 +692,10 @@ def main():
         if training_args.do_eval and not is_torch_tpu_available()
         else None,
     )
+
+    if model_args.force_save_only:
+        trainer.save_model()
+        exit()
 
     # Training
     if training_args.do_train:
