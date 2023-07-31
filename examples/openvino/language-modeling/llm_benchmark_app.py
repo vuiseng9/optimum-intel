@@ -231,7 +231,7 @@ def add_llm_args_group(parser):
     llm_parser.add_argument("--auto_llm_shape", action="store_true", help="automate creation of llm input shape for -shape (mutually exclusive), configurable with --n_beam, --prompt_len")
     llm_parser.add_argument("--n_beam", help="Optional. beam", default=1, required=False, type=int)
     llm_parser.add_argument("--prompt_len", help="Optional. gpt prompt length", default=16, required=False, type=int)
-    # llm_parser.add_argument("--tld", help="sparse weight (de)compression threshold, between 0 and 1", default=None, required=False, type=float)
+    llm_parser.add_argument("--tld", help="sparse weight (de)compression threshold, between 0 and 1", default=None, required=False, type=float)
     return parser
 
 def post_process_argparse(args):
@@ -239,12 +239,14 @@ def post_process_argparse(args):
     # we consider input IR is gpt-like graph with KV cache handles
     if args.auto_llm_shape is True:
         logger.info("--auto_llm_shape, -shape args will be generated.")
+        logger.info(f"--n_beam {args.n_beam}, --prompt_len {args.prompt_len}")
         if len(args.shape) > 0:
             raise Exception("--auto_llm_shape and -shape are mutually exclusive.")
         if len(args.data_shape) > 0:
             raise Exception("behavior of --auto_llm_shape and -data_shape are unknown. pls use stock benchmark_app.")
 
         from openvino.runtime import Core
+        import json
         ovcore = Core()
         ir_model = ovcore.read_model(args.path_to_model)
         
@@ -288,6 +290,24 @@ def post_process_argparse(args):
         args.shape=','.join(shape_list)
         logger.info(f"Overriding -shape {args.shape}")
 
+    if args.tld is not None:
+        if (args.tld <= 0) or (args.tld >= 1):
+            raise ValueError("--tld must be > 0 and < 1")
+        if args.target_device.lower() != "cpu":
+            raise ValueError("--tld only works for CPU, specifically Xeon SPR")
+
+        swd_threshold=args.tld*0.8
+
+        rtcfg_filename = f"{os.path.dirname(args.path_to_model)}/ov_rt_cfg_{args.tld}.json"
+        cfg = dict(CPU=dict(CPU_SPARSE_WEIGHTS_DECOMPRESSION_RATE=swd_threshold))
+
+        with open(rtcfg_filename, "w") as outfile:
+            json.dump(cfg, outfile, indent=4)
+
+        logger.info(f"--tld {args.tld}, with TLD threshold {swd_threshold}, created {rtcfg_filename}")
+        
+        args.load_config=rtcfg_filename
+        logger.info(f"Overriding -load_config with {rtcfg_filename}")
     return args
 
 def parse_and_check_command_line():
