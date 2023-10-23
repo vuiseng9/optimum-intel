@@ -21,7 +21,7 @@ from typing import Dict, Optional, Union
 import openvino
 from huggingface_hub import hf_hub_download
 from openvino._offline_transformations import apply_moc_transformations, compress_model_transformation
-from openvino.runtime import Core
+from openvino.runtime import Core, properties
 from transformers import PretrainedConfig
 from transformers.file_utils import add_start_docstrings
 
@@ -309,7 +309,24 @@ class OVBaseModel(PreTrainedModel):
                 ov_config["CACHE_DIR"] = str(cache_dir)
                 logger.info(f"Set CACHE_DIR to {str(cache_dir)}")
             self.request = core.compile_model(self.model, self._device, ov_config)
-
+        
+            keys = self.request.get_property(properties.supported_properties())
+            logger.info("-"*100)
+            logger.info("Model:")
+            for k in keys:
+                skip_keys = ('SUPPORTED_METRICS', 'SUPPORTED_CONFIG_KEYS', properties.supported_properties())
+                if k not in skip_keys:
+                    value = self.request.get_property(k)
+                    if k == properties.device.properties():
+                        for device_key in value.keys():
+                            logger.info(f'  {device_key}:')
+                            for k2, value2 in value.get(device_key).items():
+                                if k2 not in skip_keys:
+                                    logger.info(f'    {k2}: {value2}')
+                    else:
+                        logger.info(f'  {k}: {value}')
+            logger.info("-"*100)
+            
     def _reshape(
         self,
         model: openvino.runtime.Model,

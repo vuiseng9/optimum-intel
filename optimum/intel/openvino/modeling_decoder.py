@@ -14,6 +14,7 @@
 
 import logging
 import os
+import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Dict, Optional, Tuple, Union
@@ -366,9 +367,12 @@ class OVModelForCausalLM(OVBaseDecoderModel, GenerationMixin):
             inputs["attention_mask"] = np.array(attention_mask)
 
         # Run inference
+        beg = time.time()
         self.request.start_async(inputs, shared_memory=True)
         self.request.wait()
-
+        end = time.time()
+        print(f"\n{(end-beg)*1000:7.3f} ms | OV infer latency")
+                            
         logits = torch.from_numpy(self.request.get_tensor("logits").data).to(self.device)
 
         if self.use_cache:
