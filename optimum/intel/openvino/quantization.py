@@ -24,7 +24,7 @@ import torch
 import transformers
 from accelerate.data_loader import DataLoaderStateMixin
 from datasets import Dataset, load_dataset
-from nncf import NNCFConfig, compress_weights
+from nncf import NNCFConfig, compress_weights, CompressWeightsMode
 from nncf.torch import create_compressed_model, register_default_init_args, register_module
 from nncf.torch.dynamic_graph.io_handling import wrap_nncf_model_inputs_with_objwalk
 from nncf.torch.initialization import PTInitializingDataLoader
@@ -262,7 +262,12 @@ class OVQuantizer(OptimumQuantizer):
         save_directory.mkdir(parents=True, exist_ok=True)
 
         if weights_only:
-            self.model.model = nncf.compress_weights(self.model.model)
+            if kwargs.get("wmode", None) is None:
+                self.model.model = nncf.compress_weights(self.model.model)
+            elif kwargs.get("wmode", None) == "NF4":
+                self.model.model = nncf.compress_weights(self.model.model, CompressWeightsMode.NF4)
+            elif kwargs.get("wmode", None) == "INT4_SYM":
+                self.model.model = nncf.compress_weights(self.model.model, CompressWeightsMode.INT4_SYM)
             self.model.save_pretrained(save_directory)
             return
 
